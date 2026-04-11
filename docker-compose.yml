@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+
+  api:
+    build: ./gptchatbot-api
+    container_name: gptchatbot-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./gptchatbot-api:/app
+    restart: always
+
+  ui:
+    build: ./gptchatbot-ui
+    container_name: gptchatbot-ui
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./gptchatbot-ui:/app
+    depends_on:
+      - api
+    restart: always
