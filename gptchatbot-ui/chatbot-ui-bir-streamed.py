@@ -5,7 +5,7 @@ import time
 # =========================
 # CONFIG
 # =========================
-API_SERVER_URL = "http://13.213.49.77:8000/gptchatbot"
+API_SERVER_URL = "http://13.213.49.77:5432/gptchatbot"
 
 ENDPOINTS = {
     "openai": API_SERVER_URL + "/openai/ask-openai",
