@@ -22,9 +22,9 @@ api = NinjaAPI(
                 openapi_url="/gptchatbot.json"
                 )
 
-api.add_router("/perplexity/", perplexity_router)
+#api.add_router("/perplexity/", perplexity_router)
 api.add_router("/gemini/", gemini_router)
-api.add_router("/claude/", claude_router)
+#api.add_router("/claude/", claude_router)
 api.add_router("/openai/", openai_router)
 api.add_router("/rag/", rag_router)
-api.add_router("/helix/", helix_router)
+a#pi.add_router("/helix/", helix_router)
