@@ -4,7 +4,7 @@ services:
 
   api:
     build: ./gptchatbot-api
-    container_name: gptchatbot-api
+    container_name: birgptchatbot-api
     ports:
       - "8010:8010"
     volumes:
@@ -13,7 +13,7 @@ services:
 
   ui:
     build: ./gptchatbot-ui
-    container_name: gptchatbot-ui
+    container_name: birgptchatbot-ui
     ports:
       - "8101:8101"
     volumes:
