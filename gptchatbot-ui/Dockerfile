@@ -10,4 +10,4 @@ COPY . .
 
 EXPOSE 8101
 
-CMD ["streamlit", "run", "chatbot-ui-unstreamed.py", "--server.address=0.0.0.0", "--server.port=8101"]
+CMD ["streamlit", "run", "chatbot-ui-bir-streamed.py", "--server.address=0.0.0.0", "--server.port=8101"]
