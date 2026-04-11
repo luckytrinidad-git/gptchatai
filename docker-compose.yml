@@ -6,7 +6,7 @@ services:
     build: ./gptchatbot-api
     container_name: gptchatbot-api
     ports:
-      - "8000:8000"
+      - "8010:8010"
     volumes:
       - ./gptchatbot-api:/app
     restart: always
@@ -15,7 +15,7 @@ services:
     build: ./gptchatbot-ui
     container_name: gptchatbot-ui
     ports:
-      - "8501:8501"
+      - "8101:8101"
     volumes:
       - ./gptchatbot-ui:/app
     depends_on:

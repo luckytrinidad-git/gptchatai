@@ -8,6 +8,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-EXPOSE 8501
+EXPOSE 8101
 
-CMD ["streamlit", "run", "chatbot-ui-unstreamed.py", "--server.address=0.0.0.0", "--server.port=8501"]
+CMD ["streamlit", "run", "chatbot-ui-unstreamed.py", "--server.address=0.0.0.0", "--server.port=8101"]
