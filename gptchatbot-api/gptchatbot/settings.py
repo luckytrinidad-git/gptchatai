@@ -29,11 +29,9 @@ SECRET_KEY = 'django-insecure-+!6+nguc4((e&d-hz%er3r2mha=t=a8*9wd%aja=8#m4l7!^@%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['127.0.0.1','13.213.49.77']
+ALLOWED_HOSTS = ['localhost','127.0.0.1','13.213.49.77','13.215.160.167']
 
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Application definition
