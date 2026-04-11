@@ -15,7 +15,7 @@ services:
     build: ./gptchatbot-ui
     container_name: gptchatbot-ui
     ports:
-      - "8001:8001"
+      - "8501:8501"
     volumes:
       - ./gptchatbot-ui:/app
     depends_on:
