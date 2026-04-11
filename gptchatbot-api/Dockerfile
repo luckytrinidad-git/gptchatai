@@ -11,6 +11,6 @@ RUN pip install gunicorn
 
 COPY . .
 
-EXPOSE 5432
+EXPOSE 8000
 
-CMD ["gunicorn", "gptchatbot.wsgi:application", "--bind", "0.0.0.0:5432"]
+CMD ["gunicorn", "gptchatbot.wsgi:application", "--bind", "0.0.0.0:8000"]
