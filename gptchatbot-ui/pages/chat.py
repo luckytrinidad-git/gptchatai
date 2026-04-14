@@ -52,7 +52,7 @@ with st.sidebar:
                     st.error(f"Error: {e}")
 
     if model == "BIR AI" and uploaded_file:
-        st.info("Document Indexed for this session.")
+        st.info("Document successfully indexed.")
 
     if st.button("Clear Chat", use_container_width=True):
         st.session_state.messages = []
