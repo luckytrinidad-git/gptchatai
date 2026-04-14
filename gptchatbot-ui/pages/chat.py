@@ -76,14 +76,14 @@ if prompt := st.chat_input("Ask about anything..."):
     api_map = {"BIR AI": ENDPOINTS["openai"], "Internal AI": ENDPOINTS["internal"]}
     api_url = api_map.get(model)
 
-    # Process Assistant Response
+# Process Assistant Response
     with st.chat_message("assistant"):
-        with st.status("Processing...") as status:
+        # Use st.spinner for a clean "Loading..." look without the running icon
+        with st.spinner("Loading..."):
             try:
                 payload = {"prompt": prompt}
                 files = None
                 
-                # If External AI, we attach the file to the prompt request
                 if model == "BIR AI" and uploaded_file:
                     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
 
@@ -91,7 +91,6 @@ if prompt := st.chat_input("Ask about anything..."):
                 
                 if response.status_code == 200:
                     text = response.json().get("response", "No response")
-                    status.update(label="Response ready!", state="complete", expanded=False)
                 else:
                     st.error(f"API Error {response.status_code}")
                     st.stop()
