@@ -89,7 +89,7 @@ with st.expander("Add Service Guideline", expanded=True):
             where = st.text_area("Where to avail", placeholder="e.g., Online thru ORUS (https://orus.bir.gov.ph) or Walk-in at RDO")
 
         # --- Row 5: File Upload ---
-        st.markdown("### 📎 Reference Document")
+        st.markdown("Reference Document")
         # Fixed: Closed the function call correctly
         up_file = st.file_uploader(
             "Upload PDF, DOCX, TXT, or XLSX", 
