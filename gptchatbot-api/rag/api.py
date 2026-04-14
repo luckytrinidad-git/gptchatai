@@ -38,7 +38,7 @@ def ask_bir(request, data: Form[PromptInput], file: UploadedFile = File(None)):
 
             chunk = chunk.strip()
 
-            # 🚨 SKIP BAD CHUNKS
+            # SKIP BAD CHUNKS
             if not chunk or len(chunk) < 30:
                 continue
 

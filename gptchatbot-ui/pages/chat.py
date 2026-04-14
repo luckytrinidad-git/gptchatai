@@ -5,7 +5,7 @@ import time
 # =========================
 # CONFIG & ENDPOINTS
 # =========================
-API_SERVER_URL = "http://13.213.49.77:8000/gptchatbot"
+API_SERVER_URL = "http://127.0.0.1:8000/gptchatbot"
 ENDPOINTS = {
     "openai": API_SERVER_URL + "/openai/ask-openai",
     "gemini": API_SERVER_URL + "/gemini/ask-gemini",
@@ -28,8 +28,8 @@ with st.sidebar:
     with st.container():
         model = st.selectbox(
             "Intelligence Engine", 
-            ["Internal AI", "External AI"],
-            help="Choose 'Internal AI' for BIR knowledge-based answers."
+            ["BIR AI"],
+            help="Choose 'BIR AI' for BIR knowledge-based answers."
         )
     # st.subheader("Document Upload")
     uploaded_file = st.file_uploader(
@@ -51,7 +51,7 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"Error: {e}")
 
-    if model == "External AI" and uploaded_file:
+    if model == "BIR AI" and uploaded_file:
         st.info("Document Indexed for this session.")
 
     if st.button("Clear Chat", use_container_width=True):
@@ -73,7 +73,7 @@ if prompt := st.chat_input("Ask about anything..."):
         st.markdown(prompt)
 
     # Determine API Endpoint
-    api_map = {"External AI": ENDPOINTS["openai"], "Internal AI": ENDPOINTS["internal"]}
+    api_map = {"BIR AI": ENDPOINTS["openai"], "Internal AI": ENDPOINTS["internal"]}
     api_url = api_map.get(model)
 
     # Process Assistant Response
@@ -84,7 +84,7 @@ if prompt := st.chat_input("Ask about anything..."):
                 files = None
                 
                 # If External AI, we attach the file to the prompt request
-                if model == "External AI" and uploaded_file:
+                if model == "BIR AI" and uploaded_file:
                     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
 
                 response = requests.post(api_url, data=payload, files=files, timeout=45)

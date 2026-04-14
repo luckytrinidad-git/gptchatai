@@ -39,6 +39,7 @@ pages = [
     st.Page("pages/dashboard.py", title="Dashboard", icon=":material/dashboard:", default=True),
     st.Page("pages/chat.py", title="Chat Assistant", icon=":material/chat:"),
     st.Page("pages/history.py", title="Recent Prompts", icon=":material/history:"),
+    st.Page("pages/kx_topics.py", title="KX Topics", icon=":material/topic:"),
     st.Page("pages/audit_log.py", title="Audit Log", icon=":material/fact_check:"),
 ]
 
