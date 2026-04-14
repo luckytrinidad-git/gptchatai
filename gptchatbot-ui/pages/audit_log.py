@@ -2,7 +2,10 @@ import streamlit as st
 import pandas as pd
 import psycopg2
 from datetime import datetime
+from ui_utils import hide_running_man
 
+st.set_page_config(page_title="Audit Log", layout="wide")
+hide_running_man() # Call it here
 # =========================
 # DATABASE CONNECTION
 # =========================

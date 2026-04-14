@@ -2,6 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from ui_utils import hide_running_man
+
+st.set_page_config(page_title="Dashboard", layout="wide")
+hide_running_man() 
 
 # =========================
 # DATA PREPARATION (MOCK DATA)

@@ -2,6 +2,10 @@ import streamlit as st
 import pandas as pd
 import psycopg2
 import time
+from ui_utils import hide_running_man
+
+st.set_page_config(page_title="KX Topics", layout="wide")
+hide_running_man() 
 
 # =========================
 # DATABASE CONNECTION

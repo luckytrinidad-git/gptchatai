@@ -1,6 +1,10 @@
 import streamlit as st
 import requests
 import time
+from ui_utils import hide_running_man
+
+st.set_page_config(page_title="Chat Assistant", layout="wide")
+hide_running_man() 
 
 # =========================
 # CONFIG & ENDPOINTS

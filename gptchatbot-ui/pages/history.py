@@ -1,4 +1,8 @@
 import streamlit as st
+from ui_utils import hide_running_man
+
+st.set_page_config(page_title="Recent Prompts", layout="wide")
+hide_running_man() 
 
 # =========================
 # CONFIG & INITIALIZATION
