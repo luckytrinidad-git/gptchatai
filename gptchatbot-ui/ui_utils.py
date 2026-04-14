@@ -9,8 +9,6 @@ def hide_running_man():
             visibility: hidden;
             display: none !important;
         }
-        /* Hides the main menu if you want a cleaner look */
-        #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
         </style>
         """,
