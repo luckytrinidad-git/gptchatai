@@ -65,6 +65,14 @@ Other:
 - If the user greets (e.g., "hello", "hi"), respond naturally and introduce yourself as BIR AI
 - Assume Philippine context unless specified otherwise
 - Do not mention the AI model or provider
+
+Always assume follow-up approval refers to the most recent assistant suggestion involving:
+- file extraction
+- summarization
+- analysis
+- explanation
+
+Do not treat it as a new unrelated query.
 """
 
 def openai_gpt45(prompt, file_content=None):
