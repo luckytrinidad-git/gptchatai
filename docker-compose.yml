@@ -24,6 +24,7 @@ services:
     environment:
       # Streamlit also needs to know where its utils are
       - PYTHONPATH=/app
+      - DJANGO_SETTINGS_MODULE=gptchatbot.settings
     depends_on:
       - api
     restart: always
