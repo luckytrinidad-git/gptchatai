@@ -6,7 +6,7 @@ import os
 import sys
 import django
 import psycopg2 # Required for the Binary wrapper
-
+ 
 st.set_page_config(page_title="KX Topics - Knowledge Manager", layout="wide")
 
 # Endpoint Configuration
