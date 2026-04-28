@@ -1,7 +1,6 @@
 version: "3.9"
 
 services:
-
   api:
     build: ./gptchatbot-api
     container_name: birgptchatbot-api
@@ -10,8 +9,8 @@ services:
     volumes:
       - ./gptchatbot-api:/app
     environment:
-      # This tells Python to look in /app for the 'gptchatbot' folder
-      - PYTHONPATH=/app 
+      - PYTHONPATH=/app
+      - DJANGO_SETTINGS_MODULE=gptchatbot.settings
     restart: always
 
   ui:
@@ -21,9 +20,9 @@ services:
       - "8001:8001"
     volumes:
       - ./gptchatbot-ui:/app
+      - ./gptchatbot-api:/gptchatbot-api 
     environment:
-      # Streamlit also needs to know where its utils are
-      - PYTHONPATH=/app
+      - PYTHONPATH=/app:/gptchatbot-api  
       - DJANGO_SETTINGS_MODULE=gptchatbot.settings
     depends_on:
       - api
