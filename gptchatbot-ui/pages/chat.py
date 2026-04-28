@@ -3,6 +3,7 @@ import requests
 import time
 import json
 from ui_utils import hide_running_man
+from logger_utils import log_action
 
 st.set_page_config(page_title="Chat Assistant", layout="wide")
 hide_running_man() 
@@ -118,3 +119,10 @@ if prompt := st.chat_input("Ask about anything..."):
         # 6. Save Assistant Response to state
         st.session_state.messages.append({"role": "assistant", "content": text})
         st.rerun()
+
+        # add action to audit log
+        log_action(
+        username="End User", 
+        action=f"Queried Agent: {model}", 
+        module="Chat Assistant"
+        )

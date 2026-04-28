@@ -5,6 +5,7 @@ import time
 import os
 import sys
 import django
+from logger_utils import log_action
 
 # =========================
 # 1. CROSS-PROJECT DJANGO SETUP
@@ -74,8 +75,24 @@ with st.expander("Ingest New Document", expanded=True):
                         st.success(f"Successfully processed: {title}")
                         time.sleep(1)
                         st.rerun()
+
+                        # LOG THE ACTION
+                        log_action(
+                            username=uploaded_by, 
+                            action=f"Ingested Doc: {title}", 
+                            module="KX Topics: Knowledge Manager",
+                            status="success"
+                        )
                     else:
                         st.error(f"API Error: {response.text}")
+
+                        # LOG THE ACTION
+                        log_action(
+                            username=uploaded_by, 
+                            action=f"Failed Ingestion: {title}", 
+                            module="KX Topics: Knowledge Manager",
+                            status="failed"
+                        )
                 except Exception as e:
                     st.error(f"Connection Error: {e}")
 
