@@ -1,5 +1,9 @@
 import streamlit as st
 from pathlib import Path
+import streamlit as st
+from ui_utils import hide_running_man
+
+hide_running_man()
 
 # =========================
 # DYNAMIC PATH RESOLUTION

@@ -3,70 +3,37 @@ from gptchatbot.settings import OPENAI_API_KEY
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-
+# YOUR AUTHENTIC PERSONA
 SYSTEM_PROMPT = """
-You are BIR Internal Knowledge Assistant for the Bureau of Internal Revenue (Philippines).
-
-You must answer ONLY using provided context.
-
-========================
-RULES
-========================
-- Use ONLY the provided context
-- Do NOT require exact sentence match (IMPORTANT)
-- OCR text may be noisy, interpret meaning
-- You may combine multiple chunks if related
-- Do NOT hallucinate missing facts
-- If context is unrelated, say:
-  "Not found in uploaded BIR document."
-- If context is partial, still answer using best interpretation
-- If unclear, say:
-  "Not enough information in uploaded BIR document."
-
-========================
-OUTPUT STYLE
-========================
-- Direct answer only
-- No explanations
+You are BIR Internal Knowledge Base AI, an expert assistant specializing in Philippine taxation and compliance.
+Instructions:
+- Use the provided context to answer. 
+- If info is missing from context, check Chat History.
+- If still missing, say: "Not found in Internal Knowledge Base."
+- Format: 1. Direct Answer, 2. Explanation, 3. Reference.
+- Tone: Professional, clear, and helpful.
 """
 
+def openai_gpt45(prompt, context=None, history=None):
+    # Prepare messages with System Persona
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    
+    # Add Chat History
+    if history:
+        # Pass only relevant history to save tokens (last 10 messages)
+        for msg in history[-10:]:
+            messages.append({"role": msg["role"], "content": msg["content"]})
 
-def build_prompt(prompt, context=None):
+    # Prepare current prompt with RAG Context
+    ctx_text = f"\n\nINTERNAL DATABASE CONTEXT:\n{context}" if context else ""
+    user_message = f"{prompt}\n{ctx_text}"
+    
+    messages.append({"role": "user", "content": user_message})
 
-    if not context or len(context.strip()) < 20:
-        return f"""
-QUESTION:
-{prompt}
-
-ANSWER:
-Not found in uploaded BIR document.
-"""
-
-    return f"""
-CONTEXT:
-{context}
-
-QUESTION:
-{prompt}
-
-INSTRUCTIONS:
-- Use ONLY context above
-- Do NOT require exact match (important for OCR)
-- Combine related chunks if needed
-- If not relevant → "Not found in uploaded BIR document."
-"""
-
-
-def openai_gpt45(prompt, context=None):
-
-    full_prompt = build_prompt(prompt, context)
-
-    response = client.responses.create(
+    response = client.chat.completions.create(
         model="gpt-4o-mini",
-        instructions=SYSTEM_PROMPT,
-        input=full_prompt,
-        temperature=0.2,
-        top_p=0.9
+        messages=messages,
+        temperature=0.2
     )
 
-    return response.output_text
+    return response.choices[0].message.content

@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import time
+import json
 from ui_utils import hide_running_man
 
 st.set_page_config(page_title="Chat Assistant", layout="wide")
@@ -10,9 +11,11 @@ hide_running_man()
 # CONFIG & ENDPOINTS
 # =========================
 API_SERVER_URL = "http://13.213.49.77:8000/gptchatbot"
+REVIE_URL = "http://13.215.160.167:8000/gptchatbot/revie/ask-revie"
+REVIE_API_KEY = "ef12476b-98f5-4f45-a6f5-23a0eab05d9a"
+
 ENDPOINTS = {
     "openai": API_SERVER_URL + "/openai/ask-openai",
-    "gemini": API_SERVER_URL + "/gemini/ask-gemini",
     "internal": API_SERVER_URL + "/rag/ask-bir",
 }
 
@@ -28,35 +31,14 @@ st.title("Chat Assistant")
 # SIDEBAR SETTINGS
 # =========================
 with st.sidebar:
-    # st.markdown("### Configuration")
     with st.container():
         model = st.selectbox(
-            "Intelligence Engine", 
-            ["BIR AI"],
-            help="Choose 'BIR AI' for BIR knowledge-based answers."
+            "Agent", 
+            ["External Source", "Revie", "Tax Information", "Revenue Issuances", 
+             "Registration Requirements", "International Tax Matters", 
+             "Legal Matters", "Human Resource"],
+            help="Select the specific knowledge base for your inquiry."
         )
-    # st.subheader("Document Upload")
-    uploaded_file = st.file_uploader(
-        "Document Upload", 
-        type=["pdf", "csv", "txt", "xlsx", "docx"],
-    )
-
-    # Internal AI Knowledge Base Upload
-    if model == "Internal AI" and uploaded_file:
-        if st.button("Upload to Knowledge Base", use_container_width=True):
-            with st.spinner("Indexing document..."):
-                files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
-                try:
-                    res = requests.post(ENDPOINTS["internal"], data={"prompt": "upload"}, files=files, timeout=60)
-                    if res.status_code == 200:
-                        st.success("Document Indexed")
-                    else:
-                        st.error("Upload failed")
-                except Exception as e:
-                    st.error(f"Error: {e}")
-
-    if model == "BIR AI" and uploaded_file:
-        st.info("Document successfully indexed.")
 
     if st.button("Clear Chat", use_container_width=True):
         st.session_state.messages = []
@@ -65,50 +47,74 @@ with st.sidebar:
 # =========================
 # CHAT INTERFACE
 # =========================
-# Display History
+
+# 1. Redraw history so the conversation doesn't reset
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# User Input
+# 2. Handle new User Input
 if prompt := st.chat_input("Ask about anything..."):
+    
     st.session_state.messages.append({"role": "user", "content": prompt})
+    
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Determine API Endpoint
-    api_map = {"BIR AI": ENDPOINTS["openai"], "Internal AI": ENDPOINTS["internal"]}
-    api_url = api_map.get(model)
-
-# Process Assistant Response
+    # 3. Process Assistant Response
     with st.chat_message("assistant"):
-        # Use st.spinner for a clean "Loading..." look without the running icon
-        with st.spinner("Loading..."):
+        with st.spinner(f"Agent {model} is thinking..."):
             try:
-                payload = {"prompt": prompt}
-                files = None
+                # --- CASE A: REVIE API ---
+                if model == "Revie":
+                    headers = {
+                        "X-GPT-API-Key": REVIE_API_KEY, 
+                        "Content-Type": "application/json"
+                    }
+                    data = {"prompt": prompt}
+                    response = requests.post(REVIE_URL, json=data, headers=headers, timeout=60)
                 
-                if model == "BIR AI" and uploaded_file:
-                    files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
-
-                response = requests.post(api_url, data=payload, files=files, timeout=45)
-                
-                if response.status_code == 200:
-                    text = response.json().get("response", "No response")
+                # --- CASE B: INTERNAL RAG / OPENAI ---
                 else:
-                    st.error(f"API Error {response.status_code}")
-                    st.stop()
+                    payload = {
+                        "prompt": prompt,
+                        "agent": model,
+                        "history": json.dumps(st.session_state.messages[:-1])
+                    }
+                    api_url = ENDPOINTS["openai"] if model == "External Source" else ENDPOINTS["internal"]
+                    response = requests.post(api_url, data=payload, timeout=60)
+                
+                # 4. ROBUST RESPONSE PARSING
+                if response.status_code == 200:
+                    res_json = response.json()
+                    
+                    # We check "answer" specifically for REVIE 
+                    # and "response" for your other Django endpoints
+                    text = (
+                        res_json.get("answer") or 
+                        res_json.get("response") or 
+                        res_json.get("output") or 
+                        res_json.get("text") or 
+                        "Error: Response format not recognized."
+                    )
+                else:
+                    text = f"API Error {response.status_code}: {response.text}"
+            
             except Exception as e:
-                st.error(f"Request failed: {str(e)}")
-                st.stop()
+                text = f"Connection error: {e}"
 
-        # Smooth Typewriter Effect
+        # 5. Typewriter Effect
         placeholder = st.empty()
-        full_response = ""
-        for chunk in text.split(" "):
-            full_response += chunk + " "
-            placeholder.markdown(full_response + "▌")
-            time.sleep(0.04)
-        placeholder.markdown(full_response)
+        full_res = ""
+        
+        # Split text into words for the typing animation
+        words = text.split(" ")
+        for chunk in words:
+            full_res += chunk + " "
+            placeholder.markdown(full_res + "▌")
+            time.sleep(0.02)
+        placeholder.markdown(full_res)
 
+        # 6. Save Assistant Response to state
         st.session_state.messages.append({"role": "assistant", "content": text})
+        st.rerun()

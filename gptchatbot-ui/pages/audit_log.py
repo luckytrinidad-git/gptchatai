@@ -1,50 +1,73 @@
 import streamlit as st
 import pandas as pd
-import psycopg2
+import os
+import sys
+import django
 from datetime import datetime
-from ui_utils import hide_running_man
 
-st.set_page_config(page_title="Audit Log", layout="wide")
-hide_running_man() # Call it here
+# ==========================================
+# 1. CROSS-PROJECT DJANGO SETUP
+# ==========================================
+# Path logic to find gptchatbot-api from gptchatbot-ui/pages/
+current_file_path = os.path.abspath(__file__)
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))
+api_path = os.path.join(project_root, "gptchatbot-api")
+
+if api_path not in sys.path:
+    sys.path.append(api_path)
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'gptchatbot.settings')
+
+try:
+    django.setup()
+except Exception as e:
+    st.error(f"Django Setup Error: {e}")
+    st.stop()
+
+from django.db import connections
+
+# Helper to hide the "Running..." man
+try:
+    from ui_utils import hide_running_man
+except ImportError:
+    def hide_running_man(): pass
+
 # =========================
-# DATABASE CONNECTION
+# 2. UI CONFIGURATION
 # =========================
-def get_birai_conn():
+# set_page_config MUST be the first streamlit command
+st.set_page_config(page_title="Audit Log - BIR AI System", layout="wide")
+hide_running_man()
+
+def get_db_connection():
+    """Uses the central Django connection instead of hardcoded credentials."""
     try:
-        return psycopg2.connect(
-            host="13.215.160.167",
-            database="birai_db",
-            user="birai_admin",
-            password="fortis12#$%",
-            port="5432",
-            connect_timeout=5
-        )
+        return connections["birai_db"]
     except Exception as e:
         st.error(f"Connection to Audit Database failed: {e}")
         return None
 
-st.set_page_config(page_title="Audit Log - BIR AI System", layout="wide")
-
 # =========================
-# UI HEADER
+# 3. UI HEADER
 # =========================
 st.title("System Audit Log")
 st.markdown("Official chronological record of system activities and data modifications.")
 
 # =========================
-# DATA FETCHING
+# 4. DATA FETCHING & LOGIC
 # =========================
-conn = get_birai_conn()
+conn = get_db_connection()
+
 if conn:
     try:
-        # 1. Fetch data using lowercase names (default Postgres behavior)
+        # Fetch data
         query = "SELECT timestamp, username, action, module, status FROM audit_logs ORDER BY timestamp DESC"
         df_raw = pd.read_sql(query, conn)
-        conn.close()
+        
+        # Note: We don't manually close conn here because Django manages the lifecycle
 
         if not df_raw.empty:
-            # 2. FORCE RENAME columns to match the UI logic below
-            # This prevents 'Status' vs 'status' errors
+            # Force rename for UI consistency
             df = df_raw.rename(columns={
                 'timestamp': 'Timestamp',
                 'username': 'User',
@@ -53,9 +76,8 @@ if conn:
                 'status': 'Status'
             })
 
-            # --- 1. KPI METRICS ---
+            # --- KPI METRICS ---
             total_logs = len(df)
-            # Use lowercase in the logic to be safe when checking values
             success_count = len(df[df['Status'].str.lower() == 'success'])
             fail_count = total_logs - success_count
             
@@ -66,13 +88,13 @@ if conn:
 
             st.divider()
 
-            # --- 2. SIDEBAR FILTERS ---
+            # --- SIDEBAR FILTERS ---
             with st.sidebar:
                 st.header("Filter Records")
                 
-                selected_user = st.multiselect("Filter by User", options=df['User'].unique().tolist())
-                selected_status = st.multiselect("Filter by Status", options=df['Status'].unique().tolist())
-                selected_module = st.multiselect("Filter by Module", options=df['Module'].unique().tolist())
+                selected_user = st.multiselect("Filter by User", options=sorted(df['User'].unique().tolist()))
+                selected_status = st.multiselect("Filter by Status", options=sorted(df['Status'].unique().tolist()))
+                selected_module = st.multiselect("Filter by Module", options=sorted(df['Module'].unique().tolist()))
 
                 st.divider()
                 st.subheader("Data Export")
@@ -85,7 +107,7 @@ if conn:
                     use_container_width=True
                 )
 
-            # --- 3. DATA FILTERING LOGIC ---
+            # --- DATA FILTERING LOGIC ---
             if selected_user:
                 df = df[df['User'].isin(selected_user)]
             if selected_status:
@@ -93,7 +115,7 @@ if conn:
             if selected_module:
                 df = df[df['Module'].isin(selected_module)]
 
-            # --- 4. DATA DISPLAY ---
+            # --- DATA DISPLAY ---
             st.dataframe(
                 df,
                 use_container_width=True,
@@ -105,16 +127,13 @@ if conn:
                 }
             )
 
+            if st.button("Refresh Logs"):
+                st.rerun()
+
         else:
             st.info("No audit logs recorded in the database yet.")
 
     except Exception as e:
         st.error(f"Error processing logs: {e}")
 else:
-    st.warning("Ensure the database server is reachable.")
-
-# =========================
-# MANUAL REFRESH
-# =========================
-if st.button("Refresh Logs"):
-    st.rerun()
+    st.warning("Database configuration 'birai_db' not found in Django settings.")
