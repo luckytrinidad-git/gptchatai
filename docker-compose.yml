@@ -9,6 +9,9 @@ services:
       - "8000:8000"
     volumes:
       - ./gptchatbot-api:/app
+    environment:
+      # This tells Python to look in /app for the 'gptchatbot' folder
+      - PYTHONPATH=/app 
     restart: always
 
   ui:
@@ -18,6 +21,9 @@ services:
       - "8001:8001"
     volumes:
       - ./gptchatbot-ui:/app
+    environment:
+      # Streamlit also needs to know where its utils are
+      - PYTHONPATH=/app
     depends_on:
       - api
     restart: always
