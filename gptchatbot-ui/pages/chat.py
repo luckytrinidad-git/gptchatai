@@ -76,14 +76,14 @@ if prompt := st.chat_input("Ask about anything..."):
                     data = {"prompt": prompt}
                     response = requests.post(REVIE_URL, json=data, headers=headers, timeout=60)
                 
-                elif model != "External Source":
+                elif model = "External Source":
                     # Logic: If NOT External Source (and not Revie) -> Internal
                     payload = {
                         "prompt": prompt,
                         "agent": model,
                         "history": json.dumps(st.session_state.messages[:-1])
                     }
-                    response = requests.post(ENDPOINTS["internal"], data=payload, timeout=60)
+                    response = requests.post(ENDPOINTS["openai"], data=payload, timeout=60)
                 
                 else:
                     # Logic: Else (is External Source) -> OpenAI
@@ -92,7 +92,7 @@ if prompt := st.chat_input("Ask about anything..."):
                         "agent": model,
                         "history": json.dumps(st.session_state.messages[:-1])
                     }
-                    response = requests.post(ENDPOINTS["openai"], data=payload, timeout=60)
+                    response = requests.post(ENDPOINTS["internal"], data=payload, timeout=60)
                 
                 # 4. ROBUST RESPONSE PARSING
                 if response.status_code == 200:
