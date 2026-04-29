@@ -76,7 +76,7 @@ if prompt := st.chat_input("Ask about anything..."):
                     data = {"prompt": prompt}
                     response = requests.post(REVIE_URL, json=data, headers=headers, timeout=60)
                 
-                elif model = "External Source":
+                elif model == "External Source":
                     # Logic: If NOT External Source (and not Revie) -> Internal
                     payload = {
                         "prompt": prompt,
