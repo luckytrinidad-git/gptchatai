@@ -71,11 +71,6 @@ with st.expander("Ingest New Document", expanded=True):
                     response = requests.post(INGEST_API_URL, data=payload, files=files, timeout=300)
 
                     if response.status_code == 200:
-                        status.update(label="Upload Complete!", state="complete")
-                        st.success(f"Successfully processed: {title}")
-                        time.sleep(1)
-                        st.rerun()
-
                         # LOG THE ACTION
                         log_action(
                             username=uploaded_by, 
@@ -83,6 +78,12 @@ with st.expander("Ingest New Document", expanded=True):
                             module="KX Topics: Knowledge Manager",
                             status="success"
                         )
+                        status.update(label="Upload Complete!", state="complete")
+                        st.success(f"Successfully processed: {title}")
+                        time.sleep(1)
+                        st.rerun()
+
+                        
                     else:
                         st.error(f"API Error: {response.text}")
 

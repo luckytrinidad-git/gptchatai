@@ -49,7 +49,7 @@ with st.sidebar:
 # CHAT INTERFACE
 # =========================
 
-# 1. Redraw history so the conversation doesn't reset
+# 1. Redraw history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -66,8 +66,9 @@ if prompt := st.chat_input("Ask about anything..."):
     with st.chat_message("assistant"):
         with st.spinner(f"Agent {model} is thinking..."):
             try:
-                # --- CASE A: REVIE API ---
+                # --- NEW ENDPOINT LOGIC ---
                 if model == "Revie":
+                    # Logic: If model is Revie -> use Revie Endpoint
                     headers = {
                         "X-GPT-API-Key": REVIE_API_KEY, 
                         "Content-Type": "application/json"
@@ -75,22 +76,27 @@ if prompt := st.chat_input("Ask about anything..."):
                     data = {"prompt": prompt}
                     response = requests.post(REVIE_URL, json=data, headers=headers, timeout=60)
                 
-                # --- CASE B: INTERNAL RAG / OPENAI ---
-                else:
+                elif model != "External Source":
+                    # Logic: If NOT External Source (and not Revie) -> Internal
                     payload = {
                         "prompt": prompt,
                         "agent": model,
                         "history": json.dumps(st.session_state.messages[:-1])
                     }
-                    api_url = ENDPOINTS["openai"] if model == "External Source" else ENDPOINTS["internal"]
-                    response = requests.post(api_url, data=payload, timeout=60)
+                    response = requests.post(ENDPOINTS["internal"], data=payload, timeout=60)
+                
+                else:
+                    # Logic: Else (is External Source) -> OpenAI
+                    payload = {
+                        "prompt": prompt,
+                        "agent": model,
+                        "history": json.dumps(st.session_state.messages[:-1])
+                    }
+                    response = requests.post(ENDPOINTS["openai"], data=payload, timeout=60)
                 
                 # 4. ROBUST RESPONSE PARSING
                 if response.status_code == 200:
                     res_json = response.json()
-                    
-                    # We check "answer" specifically for REVIE 
-                    # and "response" for your other Django endpoints
                     text = (
                         res_json.get("answer") or 
                         res_json.get("response") or 
@@ -98,17 +104,18 @@ if prompt := st.chat_input("Ask about anything..."):
                         res_json.get("text") or 
                         "Error: Response format not recognized."
                     )
+                    status_log = "success"
                 else:
                     text = f"API Error {response.status_code}: {response.text}"
+                    status_log = "failed"
             
             except Exception as e:
                 text = f"Connection error: {e}"
+                status_log = "error"
 
         # 5. Typewriter Effect
         placeholder = st.empty()
         full_res = ""
-        
-        # Split text into words for the typing animation
         words = text.split(" ")
         for chunk in words:
             full_res += chunk + " "
@@ -116,13 +123,14 @@ if prompt := st.chat_input("Ask about anything..."):
             time.sleep(0.02)
         placeholder.markdown(full_res)
 
-        # 6. Save Assistant Response to state
+        # 6. Log Action (Must happen before rerun)
+        log_action(
+            username="End User", 
+            action=f"Queried Agent: {model}", 
+            module="Chat Assistant",
+            status=status_log
+        )
+
+        # 7. Save Assistant Response and Rerun
         st.session_state.messages.append({"role": "assistant", "content": text})
         st.rerun()
-
-        # add action to audit log
-        log_action(
-        username="End User", 
-        action=f"Queried Agent: {model}", 
-        module="Chat Assistant"
-        )
