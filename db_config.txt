@@ -24,7 +24,7 @@ To install and run API:
 2. To install and run UI:
 - open gptchatbot-ui
 - run pip install -r requirements.txt
-- - when ready to run, open terminal and run command, streamlit run chatbot-ui.py
+- - when ready to run, open terminal and run command, streamlit run app.py
 
 
 ============================
