@@ -105,7 +105,7 @@ st.subheader("Unified Knowledge Repository")
 try:
     #birai_db must be defined in your settings.py DATABASES
     view_df = pd.read_sql("""
-        SELECT t.id, t.topic_title, t.agent, t.file_name, COUNT(r.id) as chunks, t.uploaded_at
+        SELECT t.id, t.topic_title, t.agent, t.file_name, t.uploaded_at
         FROM kx_topics t 
         LEFT JOIN rag_birdocument r ON t.id = r.topic_id 
         GROUP BY t.id, t.topic_title, t.agent, t.file_name, t.uploaded_at
