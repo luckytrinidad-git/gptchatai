@@ -11,7 +11,7 @@ hide_running_man()
 # =========================
 # CONFIG & ENDPOINTS
 # =========================
-API_SERVER_URL = "http://127.0.0.1:8000/gptchatbot"
+API_SERVER_URL = "http://birgptchatbot-api:8000/gptchatbot"
 REVIE_URL = "http://13.215.160.167:8000/gptchatbot/revie/ask-revie"
 REVIE_API_KEY = "ef12476b-98f5-4f45-a6f5-23a0eab05d9a"
 
