@@ -99,5 +99,4 @@ h2==4.3.0
 hpack==4.1.0
 hyperframe==6.1.0
 portalocker==3.2.0
-pywin32==312
 qdrant-client==1.18.0
