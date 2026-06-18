@@ -35,7 +35,8 @@ REVIE_URL = "http://13.215.160.167:8000/gptchatbot/revie/ask-revie"
 REVIE_API_KEY = "ef12476b-98f5-4f45-a6f5-23a0eab05d9a"
 
 # INGESTION CONFIG
-INGEST_API_URL = "http://birgptchatbot-api:8000/gptchatbot/rag/ingest-knowledge"
+# INGEST_API_URL = "http://birgptchatbot-api:8000/gptchatbot/rag/ingest-knowledge"
+INGEST_API_URL = "http://13.213.49.77:8000/gptchatbot/rag/ingest-knowledge"
 
 st.title("KX Topics: Knowledge Manager")
 

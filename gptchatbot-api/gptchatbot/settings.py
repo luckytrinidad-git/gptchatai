@@ -95,8 +95,13 @@ DATABASES = {
     
 }
 
-
-
+# Qdrant Vector Database Configuration
+QDRANT_CONFIG = {
+    "HOST": os.getenv("QDRANT_HOST", "13.213.49.77"),
+    "PORT": int(os.getenv("QDRANT_PORT", 6333)),
+    "API_KEY": os.getenv("QDRANT_API_KEY", "b1r_Ax9_mK2_fQ7_vP4_zW1_nG8_tL5_jY"),
+    "COLLECTION_NAME": "bir_rag_documents",
+}
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators

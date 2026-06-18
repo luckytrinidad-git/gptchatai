@@ -94,3 +94,10 @@ pandas
 xlrd==2.0.2
 psycopg2-binary==2.9.9
 pgvector
+grpcio==1.81.1
+h2==4.3.0
+hpack==4.1.0
+hyperframe==6.1.0
+portalocker==3.2.0
+pywin32==312
+qdrant-client==1.18.0
