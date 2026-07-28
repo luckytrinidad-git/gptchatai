@@ -3,13 +3,15 @@ import json
 import io
 import numpy as np
 from PIL import Image
-import easyocr
+# import easyocr
 from docx import Document
 import pandas as pd
 import openpyxl
 import xlrd
-
-reader = easyocr.Reader(['en'], gpu=False)
+from rapidocr_onnxruntime import RapidOCR
+from pathlib import Path
+import requests
+from gptchatbot.settings import IPFS_SERVER_URL
 
 def extract_text(file_name, file_bytes):
 
@@ -22,28 +24,33 @@ def extract_text(file_name, file_bytes):
 
         text = ""
         pdf = fitz.open(stream=file_bytes, filetype="pdf")
+        ocr = RapidOCR()
 
-        for page in pdf:
+        for i, page in enumerate(pdf):
 
-            page_text = page.get_text("text")
-
-            if page_text.strip():
-                text += page_text + "\n"
-                continue
-
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-
-            img = Image.frombytes(
-                "RGB",
-                [pix.width, pix.height],
-                pix.samples
+            pix = page.get_pixmap(
+                matrix=fitz.Matrix(2, 2),  # ~144 DPI
+                colorspace=fitz.csRGB,
+                alpha=False,
             )
 
-            img_np = np.array(img)
+            img = np.frombuffer(
+                pix.samples,
+                dtype=np.uint8,
+            ).reshape(
+                pix.height,
+                pix.width,
+                3,
+            )
 
-            result = reader.readtext(img_np, detail=0)
+            result, _ = ocr(img)
 
-            text += " ".join(result) + "\n"
+            text = ""
+
+            if result:
+                text = "\n".join(
+                    line[1] for line in result
+                )
 
         return text.strip()
 
@@ -119,3 +126,48 @@ def chunk_text(text, chunk_size=800, overlap=150):
         start = end - overlap
 
     return chunks
+
+def upload_to_ipfs(uploaded_file):
+    """
+    uploaded_file:
+        Django -> request.FILES["file"]
+        FastAPI -> UploadFile.file
+        Flask -> request.files["file"]
+
+    Returns:
+        {
+            "cid": "...",
+            "name": "...",
+            "size": "..."
+        }
+    """
+    print("Uploading to", f"{IPFS_SERVER_URL}/add")
+    print(type(uploaded_file))
+    files = {
+        "file": (
+            uploaded_file.name,
+            uploaded_file,
+            uploaded_file.content_type
+            if hasattr(uploaded_file, "content_type")
+            else "application/octet-stream",
+        )
+    }
+    print(files)
+
+    print("Before POST")
+
+    response = requests.post(
+        f"{IPFS_SERVER_URL}/add",
+        files=files,
+        params={"pin": "true"},
+        timeout=(10, 300),
+    )
+
+    print("After POST")
+    print(response.status_code)
+
+    result = response.json()
+
+    cid = result["Hash"]
+
+    return cid

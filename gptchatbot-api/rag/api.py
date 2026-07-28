@@ -16,9 +16,11 @@ from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue
 
 from rag.schemas import PromptInput
 from rag.models import BIRDocument
-from rag.utils import extract_text, chunk_text
+from rag.utils import extract_text, chunk_text, upload_to_ipfs
 from rag.embeddings import get_embedding
 from chatbot_models.rag_model import openai_gpt45
+
+import os
 
 router = Router(tags=["Internal BIR AI"])
 
@@ -252,6 +254,8 @@ def ingest_knowledge(
     conn = None
     try:
         file_bytes = file.read()
+        file.seek(0)
+        file_cid = upload_to_ipfs(file)        
         
         # 1. Extraction
         text_content = extract_text(file.name, file_bytes)
@@ -270,12 +274,31 @@ def ingest_knowledge(
 
         with conn.cursor() as cursor:
             # 3. Insert Master Record into PostgreSQL
+            
+            cursor.execute(
+                """
+                SELECT id
+                FROM kx_agents
+                WHERE agent = %s
+                """,
+                (agent,),
+            )
+
+            row = cursor.fetchone()
+
+            agent_id = row[0] if row else None
+            
+            title = title if title else os.path.splitext(file.name)[0]
+            
             cursor.execute("""
                 INSERT INTO kx_topics (
                     topic_title, agent, office_type, office_division, 
-                    classification, file_name, file_data, uploaded_by
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
-            """, [title, agent, office_type, division, classification, file.name, psycopg2.Binary(file_bytes), uploaded_by])
+                    classification, file_name, file_data, uploaded_by,
+                    agent_id, file_cid
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+            """, [title, agent, office_type, division, classification, 
+                  file.name, psycopg2.Binary(file_bytes), uploaded_by,
+                  agent_id, file_cid])
             
             topic_id = cursor.fetchone()[0]
             print(f"Master Record Created: ID {topic_id}")

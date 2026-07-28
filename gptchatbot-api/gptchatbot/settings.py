@@ -33,6 +33,8 @@ ALLOWED_HOSTS = ['localhost','127.0.0.1','13.213.49.77','13.215.160.167', 'local
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+IPFS_SERVER_URL = os.getenv("IPFS_SERVER_URL")
+IPFS_SERVER_VIEW_URL = os.getenv("IPFS_SERVER_VIEW_URL")
 
 # Application definition
 

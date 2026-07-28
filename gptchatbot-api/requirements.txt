@@ -100,3 +100,4 @@ hpack==4.1.0
 hyperframe==6.1.0
 portalocker==3.2.0
 qdrant-client==1.18.0
+rapidocr_onnxruntime==1.4.4
