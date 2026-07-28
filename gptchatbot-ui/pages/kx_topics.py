@@ -30,13 +30,9 @@ from django.db import connections
 # =========================
 # 2. CONFIG & ENDPOINTS
 # =========================
-# REVIE CONFIG
-REVIE_URL = "http://13.215.160.167:8000/gptchatbot/revie/ask-revie"
-REVIE_API_KEY = "ef12476b-98f5-4f45-a6f5-23a0eab05d9a"
-
-# INGESTION CONFIG
-INGEST_API_URL = "http://birgptchatbot-api:8000/gptchatbot/rag/ingest-knowledge"
-#INGEST_API_URL = "http://127.0.0.1:8000/gptchatbot/rag/ingest-knowledge"
+from app import API_URL, REVIE_URL, REVIE_API_KEY
+INGEST_API_URL = f"{API_URL}/rag/ingest-knowledge"
+GENERAL_API_URL = f"{API_URL}/general"
 
 st.title("KX Topics: Knowledge Manager")
 
@@ -49,7 +45,18 @@ with st.expander("Ingest New Document", expanded=True):
         with col1:
             title = st.text_input("Topic Title")
         with col2:
-            agent = st.selectbox("Agent Responsible", ["Tax Information","Revenue Issuances","Registration Requirements","International Tax Matters","Legal Matters","Human Resources"])
+            response = requests.get(f"{GENERAL_API_URL}/agents")
+            agents = response.json()
+
+            with col2:
+                selected_agent = st.selectbox(
+                    "Agent Responsible",
+                    options=agents,
+                    format_func=lambda x: x["agent"]
+                )
+
+            agent_id = selected_agent["id"]
+            agent_name = selected_agent["agent"]
         with col3:
             uploaded_by = st.text_input("Uploaded By", value="Admin")
             
@@ -66,7 +73,7 @@ with st.expander("Ingest New Document", expanded=True):
                 try:
                     files = {"file": (up_file.name, up_file.getvalue(), up_file.type)}
                     payload = {
-                        "title": title, "agent": agent, "uploaded_by": uploaded_by,
+                        "title": title, "agent": agent_id, "uploaded_by": uploaded_by,
                         "office_type": o_type, "division": division, "classification": classif
                     }
                     response = requests.post(INGEST_API_URL, data=payload, files=files, timeout=300)

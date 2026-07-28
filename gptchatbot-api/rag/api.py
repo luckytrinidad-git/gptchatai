@@ -277,16 +277,16 @@ def ingest_knowledge(
             
             cursor.execute(
                 """
-                SELECT id
+                SELECT agent
                 FROM kx_agents
-                WHERE agent = %s
+                WHERE id = %s
                 """,
                 (agent,),
             )
 
             row = cursor.fetchone()
 
-            agent_id = row[0] if row else None
+            agent_name = row[0] if row else None
             
             title = title if title else os.path.splitext(file.name)[0]
             
@@ -298,7 +298,7 @@ def ingest_knowledge(
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
             """, [title, agent, office_type, division, classification, 
                   file.name, psycopg2.Binary(file_bytes), uploaded_by,
-                  agent_id, file_cid])
+                  agent_name, file_cid])
             
             topic_id = cursor.fetchone()[0]
             print(f"Master Record Created: ID {topic_id}")

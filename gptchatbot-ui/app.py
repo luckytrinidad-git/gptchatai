@@ -2,8 +2,16 @@ import streamlit as st
 from pathlib import Path
 import streamlit as st
 from ui_utils import hide_running_man
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
 hide_running_man()
+
+#### CONSTANTS
+API_URL = os.getenv("API_URL")
+REVIE_URL = os.getenv("REVIE_URL")
+REVIE_API_KEY = os.getenv("REVIE_API_KEY")
 
 # =========================
 # DYNAMIC PATH RESOLUTION

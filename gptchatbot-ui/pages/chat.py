@@ -4,6 +4,7 @@ import time
 import json
 from ui_utils import hide_running_man
 from logger_utils import log_action
+from app import API_URL, REVIE_URL, REVIE_API_KEY
 
 st.set_page_config(page_title="Chat Assistant", layout="wide")
 hide_running_man() 
@@ -11,13 +12,13 @@ hide_running_man()
 # =========================
 # CONFIG & ENDPOINTS
 # =========================
-API_SERVER_URL = "http://birgptchatbot-api:8000/gptchatbot"
-REVIE_URL = "http://13.215.160.167:8000/gptchatbot/revie/ask-revie"
-REVIE_API_KEY = "ef12476b-98f5-4f45-a6f5-23a0eab05d9a"
+from app import API_URL, REVIE_URL, REVIE_API_KEY
+INGEST_API_URL = f"{API_URL}/rag/ingest-knowledge"
+GENERAL_API_URL = f"{API_URL}/general"
 
 ENDPOINTS = {
-    "openai": API_SERVER_URL + "/openai/ask-openai",
-    "internal": API_SERVER_URL + "/rag/ask-bir",
+    "openai": API_URL + "/openai/ask-openai",
+    "internal": API_URL + "/rag/ask-bir",
 }
 
 # =========================
@@ -33,13 +34,17 @@ st.title("Chat Assistant")
 # =========================
 with st.sidebar:
     with st.container():
-        model = st.selectbox(
-            "Agent", 
-            ["BIR AI", "Revie", "Tax Information", "Revenue Issuances", 
-             "Registration Requirements", "International Tax Matters", 
-             "Legal Matters", "Human Resource"],
-            help="Select the specific knowledge base for your inquiry."
+        
+        response = requests.get(f"{GENERAL_API_URL}/agents")
+        agents = response.json()
+        
+        selected_agent = st.selectbox(
+            "Agent",
+            options=agents,
+            format_func=lambda x: x["agent"],
         )
+
+        model = selected_agent["agent"]
     # st.subheader("Document Upload")
     # uploaded_file = st.file_uploader(
     #     "Document Upload", 
