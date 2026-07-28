@@ -296,9 +296,9 @@ def ingest_knowledge(
                     classification, file_name, file_data, uploaded_by,
                     agent_id, file_cid
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
-            """, [title, agent, office_type, division, classification, 
+            """, [title, agent_name, office_type, division, classification, 
                   file.name, psycopg2.Binary(file_bytes), uploaded_by,
-                  agent_name, file_cid])
+                  agent, file_cid])
             
             topic_id = cursor.fetchone()[0]
             print(f"Master Record Created: ID {topic_id}")
