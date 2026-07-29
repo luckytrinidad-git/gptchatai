@@ -12,6 +12,7 @@ from rapidocr_onnxruntime import RapidOCR
 from pathlib import Path
 import requests
 from gptchatbot.settings import IPFS_SERVER_URL
+import re
 
 def extract_text(file_name, file_bytes):
 
@@ -171,3 +172,129 @@ def upload_to_ipfs(uploaded_file):
     cid = result["Hash"]
 
     return cid
+
+DOCUMENT_MAP = {
+    "RAO": "REVENUE ADMINISTRATIVE ORDER",
+    "RMO": "REVENUE MEMORANDUM ORDER",
+    "RMC": "REVENUE MEMORANDUM CIRCULAR",
+    "RR": "REVENUE REGULATIONS",
+    "RDAO": "REVENUE DELEGATION AUTHORITY ORDER",
+    "RAMO": "REVENUE ADMINISTRATIVE MEMORANDUM ORDER",
+    "CMC": "CUSTOMS MEMORANDUM CIRCULAR",
+}
+
+
+def normalize_document_number(number: str) -> str:
+    """
+    0004-2026
+        ↓
+    4-2026
+    """
+
+    number = number.strip()
+
+    m = re.match(r"^0*(\d+)\s*[-–]\s*(\d{4})$", number)
+
+    if m:
+        left = str(int(m.group(1)))
+        right = m.group(2).replace(" ", "")
+        return f"{left}-{right}"
+
+    return re.sub(r"\s+", "", number)
+
+def build_title_variants(doc_type: str, doc_number: str):
+    """
+    Example
+
+    RAO
+    2-2026
+
+    Generates many searchable title variants.
+    """
+
+    doc_number = normalize_document_number(doc_number)
+
+    full_name = DOCUMENT_MAP.get(doc_type)
+
+    variants = set()
+
+    variants.add(f"{doc_type} {doc_number}")
+    variants.add(f"{doc_type} NO {doc_number}")
+    variants.add(f"{doc_type} NO. {doc_number}")
+    variants.add(f"{doc_type} NO.{doc_number}")
+
+    if full_name:
+
+        variants.add(f"{full_name} {doc_number}")
+        variants.add(f"{full_name} NO {doc_number}")
+        variants.add(f"{full_name} NO. {doc_number}")
+        variants.add(f"{full_name} NO.{doc_number}")
+
+    variants.add(doc_number)
+
+    return sorted(variants)
+
+def extract_document_reference(question: str):
+    """
+    Detects references like
+
+    RAO No. 2-2026
+
+    Revenue Administrative Order No. 2-2026
+
+    RMC 63-2025
+
+    RR No 9-2024
+
+    etc.
+    """
+
+    pattern = re.compile(
+        r"""
+        \b
+        (
+            RAO|
+            RMO|
+            RMC|
+            RR|
+            RDAO|
+            RAMO|
+            CMC|
+            REVENUE\s+ADMINISTRATIVE\s+ORDER|
+            REVENUE\s+MEMORANDUM\s+ORDER|
+            REVENUE\s+MEMORANDUM\s+CIRCULAR|
+            REVENUE\s+REGULATIONS|
+            REVENUE\s+DELEGATION\s+AUTHORITY\s+ORDER
+        )
+        \s*
+        (?:NO\.?)?
+        \s*
+        ([0-9\s\-–]+)
+        """,
+        re.IGNORECASE | re.VERBOSE,
+    )
+
+    match = pattern.search(question)
+
+    if not match:
+        return None
+
+    doc_type = match.group(1).upper()
+
+    reverse = {
+        "REVENUE ADMINISTRATIVE ORDER": "RAO",
+        "REVENUE MEMORANDUM ORDER": "RMO",
+        "REVENUE MEMORANDUM CIRCULAR": "RMC",
+        "REVENUE REGULATIONS": "RR",
+        "REVENUE DELEGATION AUTHORITY ORDER": "RDAO",
+    }
+
+    doc_type = reverse.get(doc_type, doc_type)
+
+    doc_number = normalize_document_number(match.group(2))
+
+    return {
+        "doc_type": doc_type,
+        "doc_number": doc_number,
+        "variants": build_title_variants(doc_type, doc_number),
+    }

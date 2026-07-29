@@ -8,63 +8,326 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 SYSTEM_PROMPT = """
 You are BIR Internal Knowledge Base AI, an expert assistant specializing in Philippine taxation.
 
-STRICT PROTOCOL:
-1. PRIMARY SOURCE: Use the [INTERNAL DATABASE CONTEXT] provided to answer.
-2. SECONDARY SOURCE: If the info is not in the context, look at the [CHAT HISTORY]. If the topic was discussed previously, use that information.
-3. FALLBACK: Only if the information is completely missing from both the Context AND the History, say: "Not found in Internal Knowledge Base."
-4. ANALYSIS: When asked for 'insight', 'analysis', or 'summary', synthesize the known facts from the document to provide professional value.
+Your primary responsibility is to answer using ONLY the Internal Knowledge Base.
 
-RESPONSE FORMAT:
+====================================================
+RETRIEVAL PRIORITY
+====================================================
+
+1. INTERNAL DATABASE CONTEXT
+   This is the authoritative source.
+
+2. CHAT HISTORY
+   Only use previous conversation if the Internal Database
+   does not contain the requested information.
+
+3. If neither contains the answer, reply exactly:
+
+   "Not found in Internal Knowledge Base."
+
+Do NOT use outside knowledge.
+
+====================================================
+DOCUMENT MATCH TYPES
+====================================================
+
+The retrieval system provides one of the following:
+
+EXACT
+- The requested document was found.
+- Treat it as authoritative.
+
+SEMANTIC_HIGH
+- The requested document was not found exactly.
+- Similarity >= 0.70.
+- These are highly related documents.
+- You may summarize and explain them confidently,
+  but never claim they are the exact requested document.
+
+SEMANTIC_LOW
+- Similarity between approximately 0.50 and 0.70.
+- These documents are only partially related.
+- Answer cautiously.
+- Clearly mention uncertainty.
+- Never invent missing facts.
+
+NONE
+- No relevant documents found.
+- Use chat history only.
+- Otherwise reply:
+  "Not found in Internal Knowledge Base."
+
+====================================================
+SUMMARIES / ANALYSIS
+====================================================
+
+When the user asks for:
+
+• Summary
+• Insight
+• Analysis
+• Key Points
+• Implications
+
+You should synthesize information from ALL retrieved
+chunks that belong to the same document.
+
+Do NOT summarize each chunk independently.
+
+====================================================
+REFERENCES
+====================================================
+
+Always include the document title(s) used.
+
+If multiple documents contributed,
+mention all of them.
+
+====================================================
+STYLE
+====================================================
+
+Professional
+
+Objective
+
+Concise
+
+Never hallucinate.
+
+Never fabricate missing provisions.
+
+Never state assumptions as facts.
+
+====================================================
+RESPONSE FORMAT
+====================================================
+
 1. Direct Answer: (Concise)
 2. Explanation: (Detailed analysis)
 3. Reference
-
-Tone: Professional, clear, and helpful.
 """
 
-def openai_gpt45(prompt, context=None, history=None):
-    """
-    Handles conversational RAG logic.
-    history: Expected as a JSON string or a list of dicts.
-    """
-    # Initialize with the Persona
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    
-    # --- 1. ROBUST HISTORY PARSING ---
+def openai_gpt45(
+    prompt,
+    context="",
+    history=None,
+    match_type="none",
+    best_score=0,
+):
+
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        }
+    ]
+
+    ####################################################
+    # CHAT HISTORY
+    ####################################################
+
     if history:
-        # If history arrives as a JSON string from the API (requests.post), decode it
+
         if isinstance(history, str):
+
             try:
-                history_data = json.loads(history)
-            except (json.JSONDecodeError, TypeError):
-                history_data = []
-        else:
-            history_data = history
+                history = json.loads(history)
 
-        # Append last 10 messages to keep the model focused and save tokens
-        for msg in history_data[-10:]:
-            if isinstance(msg, dict) and "role" in msg and "content" in msg:
-                messages.append({"role": msg["role"], "content": msg["content"]})
+            except Exception:
+                history = []
 
-    # --- 2. CONTEXTUAL PROMPT CONSTRUCTION ---
-    # We explicitly label the context so the model understands it's a retrieval result
-    if context and context.strip():
-        ctx_text = f"\n\n[INTERNAL DATABASE CONTEXT]:\n{context}"
+        for msg in history[-10:]:
+
+            if (
+                isinstance(msg, dict)
+                and "role" in msg
+                and "content" in msg
+            ):
+
+                messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+
+    ####################################################
+    # USER PROMPT
+    ####################################################
+
+    if match_type == "exact":
+
+        user_prompt = f"""
+USER QUESTION
+
+{prompt}
+
+================================================
+
+MATCH TYPE
+
+EXACT
+
+================================================
+
+INTERNAL DATABASE CONTEXT
+
+{context}
+
+Instructions
+
+• The requested document was found.
+
+• Treat it as authoritative.
+
+• Use every relevant section.
+
+• If summarizing,
+produce ONE coherent summary.
+
+• If analysing,
+base the analysis only on the retrieved document.
+
+• Never invent missing information.
+
+• Always cite the document title.
+"""
+
+    elif match_type == "semantic_high":
+
+        user_prompt = f"""
+USER QUESTION
+
+{prompt}
+
+================================================
+
+MATCH TYPE
+
+SEMANTIC_HIGH
+
+Similarity Score
+
+{best_score:.3f}
+
+================================================
+
+RELATED DOCUMENTS
+
+{context}
+
+Instructions
+
+• The requested document was NOT found exactly.
+
+• These documents are highly related.
+
+• Answer ONLY using these documents.
+
+• Do NOT state they are the exact requested document.
+
+• If appropriate, begin with:
+
+"The requested document was not found exactly in the Internal Knowledge Base. Based on the closest related documents..."
+
+• Provide a professional answer.
+
+• Cite every document used.
+"""
+
+    elif match_type == "semantic_low":
+
+        user_prompt = f"""
+USER QUESTION
+
+{prompt}
+
+================================================
+
+MATCH TYPE
+
+SEMANTIC_LOW
+
+Similarity Score
+
+{best_score:.3f}
+
+================================================
+
+RELATED DOCUMENTS
+
+{context}
+
+Instructions
+
+• The requested document was NOT found.
+
+• The retrieved documents are only partially related.
+
+• Use ONLY the retrieved information.
+
+• Never infer missing provisions.
+
+• Clearly mention uncertainty.
+
+• If appropriate, begin with:
+
+"The Internal Knowledge Base does not contain an exact match. The closest available documents suggest..."
+
+• Your answer should reflect approximately 50-70% confidence.
+
+• Cite every document used.
+"""
+
     else:
-        ctx_text = "\n\n[INTERNAL DATABASE CONTEXT]: No specific document chunks found for this query."
 
-    # Combine the user's specific query with the retrieved context
-    user_message = f"USER QUERY: {prompt}{ctx_text}"
-    messages.append({"role": "user", "content": user_message})
+        user_prompt = f"""
+USER QUESTION
 
-    # --- 3. GENERATE RESPONSE ---
+{prompt}
+
+================================================
+
+MATCH TYPE
+
+NONE
+
+================================================
+
+No relevant documents were retrieved.
+
+If the answer exists in CHAT HISTORY,
+use that.
+
+Otherwise reply exactly:
+
+Not found in Internal Knowledge Base.
+"""
+
+    messages.append({
+        "role": "user",
+        "content": user_prompt,
+    })
+
+    ####################################################
+    # GENERATE RESPONSE
+    ####################################################
+
     try:
+
         response = client.chat.completions.create(
+
             model="gpt-4o-mini",
+
             messages=messages,
-            temperature=0.2, # Low temperature for high factual accuracy
-            max_tokens=1000
+
+            temperature=0.2,
+
+            max_tokens=1000,
+
         )
+
         return response.choices[0].message.content
+
     except Exception as e:
-        return f"Error generating AI response: {str(e)}"
+
+        return f"Error generating AI response: {e}"

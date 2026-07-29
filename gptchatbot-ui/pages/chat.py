@@ -37,6 +37,10 @@ with st.sidebar:
         
         response = requests.get(f"{GENERAL_API_URL}/agents")
         agents = response.json()
+        agents = [
+            {"id": -1, "agent": "BIR AI"},
+            {"id": -2, "agent":  "Revie"},
+        ] + agents
         
         selected_agent = st.selectbox(
             "Agent",
