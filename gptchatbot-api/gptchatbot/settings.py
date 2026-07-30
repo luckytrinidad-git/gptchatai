@@ -29,7 +29,7 @@ SECRET_KEY = 'django-insecure-+!6+nguc4((e&d-hz%er3r2mha=t=a8*9wd%aja=8#m4l7!^@%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost','127.0.0.1','13.213.49.77','13.215.160.167', 'localhost','birgptchatbot-api']
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -88,20 +88,20 @@ DATABASES = {
     },
     "birai_db": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "birai_db",
-        "USER": "birai_admin",
-        "PASSWORD": "fortis12#$%",
-        "HOST": "13.215.160.167",
-        "PORT": "5432",
+        "NAME": os.getenv("PSQL_NAME"),
+        "USER": os.getenv("PSQL_USER"),
+        "PASSWORD": os.getenv("PSQL_PASSWORD"),
+        "HOST": os.getenv("PSQL_HOST"),
+        "PORT": os.getenv("PSQL_PORT"),
     }
     
 }
 
 # Qdrant Vector Database Configuration
 QDRANT_CONFIG = {
-    "HOST": os.getenv("QDRANT_HOST", "13.213.49.77"),
-    "PORT": int(os.getenv("QDRANT_PORT", 6333)),
-    "API_KEY": os.getenv("QDRANT_API_KEY", "b1r_Ax9_mK2_fQ7_vP4_zW1_nG8_tL5_jY"),
+    "HOST": os.getenv("QDRANT_HOST"),
+    "PORT": int(os.getenv("QDRANT_PORT")),
+    "API_KEY": os.getenv("QDRANT_API_KEY"),
     "COLLECTION_NAME": "bir_rag_documents",
 }
 
