@@ -24,4 +24,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["gunicorn", "gptchatbot.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "300", "--capture-output", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "debug"]
+CMD ["gunicorn", "gptchatbot.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "1800", "--capture-output", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "debug"]
