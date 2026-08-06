@@ -20,6 +20,7 @@ from rag.models import BIRDocument
 from rag.utils import extract_text, chunk_text, upload_to_ipfs
 from rag.embeddings import get_embedding
 from chatbot_models.rag_model import openai_gpt45
+from chatbot_models.openai_model import openai_gpt45 as bir_openai_gpt45
 
 import os
 from rag.utils import build_title_variants, normalize_document_number, extract_document_reference, DOCUMENT_MAP 
@@ -443,6 +444,8 @@ def ask_bir(request, data: Form[PromptInput], file: UploadedFile = File(None)):
 
     )
 
+    no_docs_found = False
+    
     if retrieval["contexts"]:
 
         context = "\n\n".join(
@@ -450,7 +453,7 @@ def ask_bir(request, data: Form[PromptInput], file: UploadedFile = File(None)):
         )
 
     else:
-
+        no_docs_found = True
         context = (
             "No relevant documents were found in the "
             "Internal Knowledge Base."
@@ -465,20 +468,25 @@ def ask_bir(request, data: Form[PromptInput], file: UploadedFile = File(None)):
     ###########################################################
     # 5. GPT
     ###########################################################
+    if no_docs_found:
+        
+        response = bir_openai_gpt45(prompt=prompt, from_ask_bir=True)
+        
+    else:
+        
+        response = openai_gpt45(
 
-    response = openai_gpt45(
+            prompt=prompt,
 
-        prompt=prompt,
+            context=context,
 
-        context=context,
+            history=history,
 
-        history=history,
+            match_type=retrieval["match_type"],
 
-        match_type=retrieval["match_type"],
+            best_score=retrieval["best_score"],
 
-        best_score=retrieval["best_score"],
-
-    )
+        )
 
     ###########################################################
     # 6. RETURN

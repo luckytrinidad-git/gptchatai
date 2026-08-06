@@ -75,10 +75,24 @@ Always assume follow-up approval refers to the most recent assistant suggestion 
 Do not treat it as a new unrelated query.
 """
 
-def openai_gpt45(prompt, file_content=None):
+def openai_gpt45(prompt, file_content=None, from_ask_bir = False):
+    system_prompt = INITIAL_PROMPT
     if not prompt:
         return 400, {'message': 'No prompt received.'}
-    
+    if from_ask_bir:
+        system_prompt += """
+
+No relevant documents were found in the selected Internal Knowledge Base.
+
+Answer the user's question using your general knowledge of Philippine taxation and Bureau of Internal Revenue (BIR) regulations.
+
+Important:
+- Clearly state that the answer is based on general BIR knowledge and not on the selected Internal Knowledge Base.
+- Do not claim that the information came from the Internal Knowledge Base.
+- If you are uncertain or the information may have changed, advise the user to verify with the latest BIR issuances or official BIR sources.
+- Do not invent Revenue Regulations, Revenue Memorandum Circulars, Revenue Administrative Orders, or section numbers.
+- Cite references only if you are reasonably confident they are correct.
+"""
     if file_content:
         uploaded_file = client.files.create(
             file=(file_content.name, file_content.file),
@@ -87,7 +101,7 @@ def openai_gpt45(prompt, file_content=None):
 
         response = client.responses.create(
             model="gpt-5.4-mini",
-            instructions=INITIAL_PROMPT,
+            instructions=system_prompt,
             input=[
                 {
                     "role": "user",
@@ -105,7 +119,7 @@ def openai_gpt45(prompt, file_content=None):
     else:
         response = client.responses.create(
             model="gpt-5.4-mini",
-            instructions=INITIAL_PROMPT,
+            instructions=system_prompt,
             input=prompt
         )
         return response.output_text
