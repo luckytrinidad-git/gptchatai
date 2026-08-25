@@ -13,24 +13,178 @@ from pathlib import Path
 import requests
 from gptchatbot.settings import IPFS_SERVER_URL
 import re
+import yaml
+import xlrd
+import openpyxl
+from pathlib import Path
+from email import policy
+from email.parser import BytesParser
+from docx import Document
+from pptx import Presentation
+from odf import text, teletype
+from odf.opendocument import load
+from rapidocr_onnxruntime import RapidOCR
+from striprtf.striprtf import rtf_to_text
+import extract_msg
+
+
+# Initialize OCR once
+ocr = RapidOCR()
+
+
+# =========================
+# Helper: decode text
+# =========================
+
+def decode_text(file_bytes):
+    for encoding in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
+        try:
+            return file_bytes.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+
+    return file_bytes.decode("utf-8", errors="ignore")
+
+
+# =========================
+# Helper: OCR image
+# =========================
+
+def ocr_image(img):
+    result, _ = ocr(img)
+
+    if not result:
+        return ""
+
+    return "\n".join(
+        line[1] for line in result
+    )
+
+
+# =========================
+# Main extraction function
+# =========================
 
 def extract_text(file_name, file_bytes):
 
     filename = file_name.lower()
+    extension = Path(filename).suffix
 
-    # =========================
-    # PDF (VECTOR + OCR)
-    # =========================
-    if filename.endswith(".pdf"):
+    # =========================================================
+    # TEXT / SOURCE CODE / MARKUP / DATA FILES
+    # =========================================================
 
-        text = ""
-        pdf = fitz.open(stream=file_bytes, filetype="pdf")
-        ocr = RapidOCR()
+    text_extensions = {
+        ".txt",
+        ".md",
+        ".csv",
+        ".tsv",
+        ".log",
 
-        for i, page in enumerate(pdf):
+        ".html",
+        ".htm",
+        ".xml",
+
+        ".json",
+        ".yaml",
+        ".yml",
+
+        ".py",
+        ".java",
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".c",
+        ".cpp",
+        ".h",
+        ".cs",
+        ".php",
+        ".go",
+        ".rs",
+        ".rb",
+        ".swift",
+        ".kt",
+        ".sql",
+        ".sh",
+        ".bash",
+        ".ps1",
+        ".css",
+        ".scss",
+        ".vue",
+    }
+
+    if extension in text_extensions:
+
+        # JSON
+        if extension == ".json":
+            try:
+                data = json.loads(decode_text(file_bytes))
+                return json.dumps(data, indent=2, ensure_ascii=False)
+            except Exception:
+                return decode_text(file_bytes)
+
+        # YAML
+        if extension in {".yaml", ".yml"}:
+            try:
+                data = yaml.safe_load(decode_text(file_bytes))
+                return yaml.dump(
+                    data,
+                    allow_unicode=True,
+                    sort_keys=False
+                )
+            except Exception:
+                return decode_text(file_bytes)
+
+        return decode_text(file_bytes)
+
+
+    # =========================================================
+    # RTF
+    # =========================================================
+
+    elif extension == ".rtf":
+
+        try:
+            return rtf_to_text(
+                decode_text(file_bytes)
+            )
+        except Exception:
+            return decode_text(file_bytes)
+
+
+    # =========================================================
+    # PDF
+    # VECTOR TEXT + OCR SCANNED PAGES
+    # =========================================================
+
+    elif extension == ".pdf":
+
+        output = []
+
+        pdf = fitz.open(
+            stream=file_bytes,
+            filetype="pdf"
+        )
+
+        for page in pdf:
+
+            # ---------------------------------
+            # Try normal PDF text extraction
+            # ---------------------------------
+
+            page_text = page.get_text("text").strip()
+
+            if page_text:
+                output.append(page_text)
+                continue
+
+            # ---------------------------------
+            # No text -> scanned page
+            # ---------------------------------
 
             pix = page.get_pixmap(
-                matrix=fitz.Matrix(2, 2),  # ~144 DPI
+                matrix=fitz.Matrix(1.5, 1.5),
                 colorspace=fitz.csRGB,
                 alpha=False,
             )
@@ -44,78 +198,371 @@ def extract_text(file_name, file_bytes):
                 3,
             )
 
-            result, _ = ocr(img)
+            page_text = ocr_image(img)
 
-            text = ""
+            if page_text:
+                output.append(page_text)
 
-            if result:
-                text = "\n".join(
-                    line[1] for line in result
+        pdf.close()
+
+        return "\n".join(output).strip()
+
+
+    # =========================================================
+    # IMAGE FILES
+    # =========================================================
+
+    elif extension in {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".tif",
+        ".tiff",
+        ".bmp",
+        ".webp",
+    }:
+
+        from PIL import Image
+
+        image = Image.open(
+            io.BytesIO(file_bytes)
+        ).convert("RGB")
+
+        img = np.array(image)
+
+        return ocr_image(img)
+
+
+    # =========================================================
+    # DOCX
+    # =========================================================
+
+    elif extension == ".docx":
+
+        doc = Document(
+            io.BytesIO(file_bytes)
+        )
+
+        output = []
+
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                output.append(paragraph.text)
+
+        # Tables
+        for table in doc.tables:
+
+            for row in table.rows:
+
+                row_text = [
+                    cell.text.strip()
+                    for cell in row.cells
+                ]
+
+                output.append(
+                    " | ".join(row_text)
                 )
 
-        return text.strip()
+        return "\n".join(output)
 
-    # =========================
-    # TXT / CSV
-    # =========================
-    elif filename.endswith((".txt", ".csv")):
-        return file_bytes.decode("utf-8", errors="ignore")
 
-    # =========================
-    # JSON
-    # =========================
-    elif filename.endswith(".json"):
-        try:
-            data = json.loads(file_bytes.decode("utf-8", errors="ignore"))
-            return json.dumps(data, indent=2)
-        except:
-            return file_bytes.decode("utf-8", errors="ignore")
+    # =========================================================
+    # XLSX / XLSM
+    # =========================================================
 
-    # =========================
-    # XLSX (Excel modern)
-    # =========================
-    elif filename.endswith(".xlsx"):
+    elif extension in {".xlsx", ".xlsm"}:
+
         output = []
 
-        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        wb = openpyxl.load_workbook(
+            io.BytesIO(file_bytes),
+            data_only=True
+        )
 
         for sheet in wb.sheetnames:
-            ws = wb[sheet]
-            output.append(f"--- Sheet: {sheet} ---")
 
-            for row in ws.iter_rows(values_only=True):
-                row_text = [str(cell) if cell is not None else "" for cell in row]
-                output.append(" | ".join(row_text))
+            ws = wb[sheet]
+
+            output.append(
+                f"--- Sheet: {sheet} ---"
+            )
+
+            for row in ws.iter_rows(
+                values_only=True
+            ):
+
+                row_text = [
+                    str(cell)
+                    if cell is not None
+                    else ""
+                    for cell in row
+                ]
+
+                output.append(
+                    " | ".join(row_text)
+                )
 
         return "\n".join(output)
 
 
-    # =========================
-    # XLS (Excel legacy)
-    # =========================
-    elif filename.endswith(".xls"):
+    # =========================================================
+    # XLS
+    # =========================================================
+
+    elif extension == ".xls":
+
         output = []
 
-        workbook = xlrd.open_workbook(file_contents=file_bytes)
+        workbook = xlrd.open_workbook(
+            file_contents=file_bytes
+        )
 
         for sheet in workbook.sheets():
-            output.append(f"--- Sheet: {sheet.name} ---")
+
+            output.append(
+                f"--- Sheet: {sheet.name} ---"
+            )
 
             for row_idx in range(sheet.nrows):
-                row = sheet.row_values(row_idx)
-                row_text = [str(cell) for cell in row]
-                output.append(" | ".join(row_text))
+
+                row = sheet.row_values(
+                    row_idx
+                )
+
+                row_text = [
+                    str(cell)
+                    for cell in row
+                ]
+
+                output.append(
+                    " | ".join(row_text)
+                )
 
         return "\n".join(output)
 
-    # =========================
-    # DOCX
-    # =========================
-    elif filename.endswith(".docx"):
-        doc = Document(io.BytesIO(file_bytes))
-        return "\n".join([p.text for p in doc.paragraphs])
 
-    return file_bytes.decode("utf-8", errors="ignore")
+    # =========================================================
+    # PPTX
+    # =========================================================
+
+    elif extension == ".pptx":
+
+        presentation = Presentation(
+            io.BytesIO(file_bytes)
+        )
+
+        output = []
+
+        for slide_number, slide in enumerate(
+            presentation.slides,
+            start=1
+        ):
+
+            output.append(
+                f"--- Slide {slide_number} ---"
+            )
+
+            for shape in slide.shapes:
+
+                if hasattr(shape, "text"):
+
+                    if shape.text.strip():
+                        output.append(
+                            shape.text.strip()
+                        )
+
+        return "\n".join(output)
+
+
+    # =========================================================
+    # ODT
+    # =========================================================
+
+    elif extension == ".odt":
+
+        doc = load(
+            io.BytesIO(file_bytes)
+        )
+
+        return teletype.extractText(
+            doc.text
+        )
+
+
+    # =========================================================
+    # ODS
+    # =========================================================
+
+    elif extension == ".ods":
+
+        doc = load(
+            io.BytesIO(file_bytes)
+        )
+
+        output = []
+
+        for table in doc.spreadsheet.getElementsByType(
+            __import__("odf.table", fromlist=["Table"]).Table
+        ):
+
+            output.append(
+                f"--- Sheet: {table.getAttribute('name')} ---"
+            )
+
+            for row in table.getElementsByType(
+                __import__("odf.table", fromlist=["TableRow"]).TableRow
+            ):
+
+                cells = []
+
+                for cell in row.getElementsByType(
+                    __import__("odf.table", fromlist=["TableCell"]).TableCell
+                ):
+
+                    cells.append(
+                        teletype.extractText(cell)
+                    )
+
+                output.append(
+                    " | ".join(cells)
+                )
+
+        return "\n".join(output)
+
+
+    # =========================================================
+    # ODP
+    # =========================================================
+
+    elif extension == ".odp":
+
+        doc = load(
+            io.BytesIO(file_bytes)
+        )
+
+        output = []
+
+        for element in doc.getElementsByType(
+            text.P
+        ):
+
+            value = teletype.extractText(
+                element
+            )
+
+            if value.strip():
+                output.append(value)
+
+        return "\n".join(output)
+
+
+    # =========================================================
+    # EML
+    # =========================================================
+
+    elif extension == ".eml":
+
+        msg = BytesParser(
+            policy=policy.default
+        ).parsebytes(file_bytes)
+
+        output = []
+
+        if msg["subject"]:
+            output.append(
+                f"Subject: {msg['subject']}"
+            )
+
+        if msg["from"]:
+            output.append(
+                f"From: {msg['from']}"
+            )
+
+        if msg["to"]:
+            output.append(
+                f"To: {msg['to']}"
+            )
+
+        output.append("")
+
+        if msg.is_multipart():
+
+            for part in msg.walk():
+
+                if (
+                    part.get_content_type()
+                    == "text/plain"
+                ):
+
+                    content = part.get_content()
+
+                    if content:
+                        output.append(content)
+
+        else:
+
+            if msg.get_content_type() == "text/plain":
+                output.append(
+                    msg.get_content()
+                )
+
+        return "\n".join(output)
+
+
+    # =========================================================
+    # MSG
+    # =========================================================
+
+    elif extension == ".msg":
+
+        msg = extract_msg.Message(
+            io.BytesIO(file_bytes)
+        )
+
+        output = []
+
+        if msg.subject:
+            output.append(
+                f"Subject: {msg.subject}"
+            )
+
+        if msg.sender:
+            output.append(
+                f"From: {msg.sender}"
+            )
+
+        if msg.to:
+            output.append(
+                f"To: {msg.to}"
+            )
+
+        output.append("")
+
+        if msg.body:
+            output.append(msg.body)
+
+        msg.close()
+
+        return "\n".join(output)
+
+
+    # =========================================================
+    # Legacy DOC / PPT
+    # =========================================================
+
+    elif extension in {".doc", ".ppt"}:
+
+        raise ValueError(
+            f"Legacy Office format {extension} requires "
+            "LibreOffice conversion before extraction."
+        )
+
+
+    # =========================================================
+    # Unknown file
+    # =========================================================
+
+    return decode_text(file_bytes)
 
 def chunk_text(text, chunk_size=800, overlap=150):
     chunks = []

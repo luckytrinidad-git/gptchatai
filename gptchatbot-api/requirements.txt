@@ -101,3 +101,7 @@ hyperframe==6.1.0
 portalocker==3.2.0
 qdrant-client==1.18.0
 rapidocr_onnxruntime==1.4.4
+python-pptx==1.0.2
+odfpy==1.4.1
+striprtf==0.0.29
+extract-msg==0.55.0

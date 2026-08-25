@@ -6,6 +6,16 @@ import os
 import sys
 import django
 from logger_utils import log_action
+FILE_EXTENSIONS = [
+    ext.strip().lower()
+    for ext in os.getenv(
+        "FILE_EXTENSIONS",
+        ""
+    ).split(",")
+    if ext.strip()
+]
+
+print(FILE_EXTENSIONS)
 
 # =========================
 # 1. CROSS-PROJECT DJANGO SETUP
@@ -65,7 +75,7 @@ with st.expander("Ingest New Document", expanded=True):
         with o2: division = st.text_input("Division")
         with o3: classif = st.selectbox("Classification", ["Simple", "Complex", "Highly Technical"])
 
-        up_file = st.file_uploader("Upload Source", type=["pdf", "xlsx", "xls", "docx", "txt", "json", "csv"])
+        up_file = st.file_uploader("Upload Source", type=FILE_EXTENSIONS)
         submit = st.form_submit_button("Upload & Process", use_container_width=True, type="primary")
 
         if submit and title and up_file:
