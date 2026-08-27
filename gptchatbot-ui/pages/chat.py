@@ -61,7 +61,7 @@ with st.sidebar:
     #         with st.spinner("Indexing document..."):
     #             files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
     #             try:
-    #                 res = requests.post(ENDPOINTS["internal"], data={"prompt": "upload"}, files=files, timeout=60)
+    #                 res = requests.post(ENDPOINTS["internal"], data={"prompt": "upload"}, files=files, timeout=180)
     #                 if res.status_code == 200:
     #                     st.success("Document Indexed")
     #                 else:
@@ -117,7 +117,7 @@ if prompt := st.chat_input("Ask about anything..."):
                         "Content-Type": "application/json"
                     }
                     data = {"prompt": prompt}
-                    response = requests.post(REVIE_URL, json=data, headers=headers, timeout=60)
+                    response = requests.post(REVIE_URL, json=data, headers=headers, timeout=180)
                 # --- CASE 2: EXTERNAL SOURCE ---
                 elif model == "BIR AI":
                     endpoint = ENDPOINTS["openai"]
@@ -130,13 +130,13 @@ if prompt := st.chat_input("Ask about anything..."):
                     if uploaded_file:
                         # Standard file upload request
                         files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
-                        response = requests.post(endpoint, data=payload, files=files, timeout=60)
+                        response = requests.post(endpoint, data=payload, files=files, timeout=180)
                     else:
                         try:
-                            response = requests.post(endpoint, data=payload, timeout=60)
+                            response = requests.post(endpoint, data=payload, timeout=180)
                         except Exception:
                         # Fallback for strict backends:
-                            response = requests.post(endpoint, data=payload, files={'file': ('', b'')}, timeout=60)
+                            response = requests.post(endpoint, data=payload, files={'file': ('', b'')}, timeout=180)
 
                 # elif model == "BIR AI" and uploaded_file:
                 #     endpoint = ENDPOINTS["openai"]
@@ -164,7 +164,7 @@ if prompt := st.chat_input("Ask about anything..."):
                         "agent": model,
                         "history": json.dumps(st.session_state.messages[:-1])
                     }
-                    response = requests.post(endpoint, data=payload, timeout=60)
+                    response = requests.post(endpoint, data=payload, timeout=180)
                 
                 # 4. ROBUST RESPONSE PARSING
                 if response.status_code == 200:
