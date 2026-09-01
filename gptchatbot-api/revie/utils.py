@@ -72,17 +72,17 @@ def search_revie_knowledge_base(
     # DETERMINE MATCH TYPE
     ###########################################################
 
-    if best_score >= 0.75:
+    if best_score >= 0.70:
 
         match_type = "exact"
 
-    elif best_score >= 0.60:
+    elif best_score >= 0.55:
 
-        match_type = "related"
+        match_type = "semantic_high"
 
     else:
 
-        match_type = "semantic"
+        match_type = "semantic_high_low"
 
     ###########################################################
     # BUILD CONTEXT
