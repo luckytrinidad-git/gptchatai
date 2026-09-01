@@ -100,7 +100,7 @@ Important:
         )
 
         response = client.responses.create(
-            model="gpt-5.4-mini",
+            model="gpt-5.6-luna",
             instructions=system_prompt,
             input=[
                 {
