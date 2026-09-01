@@ -27,7 +27,6 @@ from rapidocr_onnxruntime import RapidOCR
 from striprtf.striprtf import rtf_to_text
 import extract_msg
 
-
 # Initialize OCR once
 ocr = RapidOCR()
 
@@ -575,34 +574,14 @@ def chunk_text(text, chunk_size=800, overlap=150):
 
     return chunks
 
-def upload_to_ipfs(uploaded_file):
-    """
-    uploaded_file:
-        Django -> request.FILES["file"]
-        FastAPI -> UploadFile.file
-        Flask -> request.files["file"]
-
-    Returns:
-        {
-            "cid": "...",
-            "name": "...",
-            "size": "..."
-        }
-    """
-    print("Uploading to", f"{IPFS_SERVER_URL}/add")
-    print(type(uploaded_file))
+def upload_to_ipfs(file_name, file_bytes, content_type):
     files = {
         "file": (
-            uploaded_file.name,
-            uploaded_file,
-            uploaded_file.content_type
-            if hasattr(uploaded_file, "content_type")
-            else "application/octet-stream",
+            file_name,
+            file_bytes,
+            content_type or "application/octet-stream"
         )
     }
-    print(files)
-
-    print("Before POST")
 
     response = requests.post(
         f"{IPFS_SERVER_URL}/add",
@@ -610,9 +589,6 @@ def upload_to_ipfs(uploaded_file):
         params={"pin": "true"},
         timeout=(10, 300),
     )
-
-    print("After POST")
-    print(response.status_code)
 
     result = response.json()
 
@@ -682,41 +658,30 @@ def build_title_variants(doc_type: str, doc_number: str):
     return sorted(variants)
 
 def extract_document_reference(question: str):
-    """
-    Detects references like
-
-    RAO No. 2-2026
-
-    Revenue Administrative Order No. 2-2026
-
-    RMC 63-2025
-
-    RR No 9-2024
-
-    etc.
-    """
 
     pattern = re.compile(
         r"""
         \b
         (
-            RAO|
-            RMO|
-            RMC|
-            RR|
-            RDAO|
-            RAMO|
-            CMC|
-            REVENUE\s+ADMINISTRATIVE\s+ORDER|
-            REVENUE\s+MEMORANDUM\s+ORDER|
-            REVENUE\s+MEMORANDUM\s+CIRCULAR|
-            REVENUE\s+REGULATIONS|
+            RAO |
+            RMO |
+            RMC |
+            RR |
+            RDAO |
+            RAMO |
+            CMC |
+            REVENUE\s+ADMINISTRATIVE\s+ORDER |
+            REVENUE\s+MEMORANDUM\s+ORDER |
+            REVENUE\s+MEMORANDUM\s+CIRCULAR |
+            REVENUE\s+REGULATIONS |
             REVENUE\s+DELEGATION\s+AUTHORITY\s+ORDER
         )
         \s*
-        (?:NO\.?)?
-        \s*
-        ([0-9\s\-–]+)
+        (?:NO\.?\s*)?
+        (
+            \d+(?:\s*[-–]\s*\d+)?
+        )
+        \b
         """,
         re.IGNORECASE | re.VERBOSE,
     )
@@ -736,12 +701,20 @@ def extract_document_reference(question: str):
         "REVENUE DELEGATION AUTHORITY ORDER": "RDAO",
     }
 
-    doc_type = reverse.get(doc_type, doc_type)
+    doc_type = reverse.get(
+        doc_type,
+        doc_type
+    )
 
-    doc_number = normalize_document_number(match.group(2))
+    doc_number = normalize_document_number(
+        match.group(2)
+    )
 
     return {
         "doc_type": doc_type,
         "doc_number": doc_number,
-        "variants": build_title_variants(doc_type, doc_number),
+        "variants": build_title_variants(
+            doc_type,
+            doc_number
+        ),
     }

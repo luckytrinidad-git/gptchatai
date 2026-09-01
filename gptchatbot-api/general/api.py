@@ -20,3 +20,36 @@ def get_agents(request):
             }
             for row in cursor.fetchall()
         ]
+
+@router.get("/topics")
+def get_topics(request):
+    
+    with connections["birai_db"].cursor() as cursor:
+        cursor.execute("""
+            SELECT
+                t.id,
+                t.topic_title,
+                t.agent,
+                t.file_name,
+                t.uploaded_at,
+                t.file_cid
+            FROM kx_topics t
+            LEFT JOIN rag_birdocument r
+                ON t.id = r.topic_id
+            GROUP BY
+                t.id,
+                t.topic_title,
+                t.agent,
+                t.file_name,
+                t.uploaded_at,
+                t.file_cid
+            ORDER BY t.uploaded_at DESC
+        """)
+
+        columns = [col[0] for col in cursor.description]
+        rows = cursor.fetchall()
+
+    return [
+        dict(zip(columns, row))
+        for row in rows
+    ]

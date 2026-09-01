@@ -19,6 +19,7 @@ GENERAL_API_URL = f"{API_URL}/general"
 ENDPOINTS = {
     "openai": API_URL + "/openai/ask-openai",
     "internal": API_URL + "/rag/ask-bir",
+    "revie": API_URL + "/revie/ask-revie",
 }
 
 # =========================
@@ -38,8 +39,7 @@ with st.sidebar:
         response = requests.get(f"{GENERAL_API_URL}/agents")
         agents = response.json()
         agents = [
-            {"id": -1, "agent": "BIR AI"},
-            {"id": -2, "agent":  "Revie"},
+            {"id": -1, "agent": "General"},
         ] + agents
         
         selected_agent = st.selectbox(
@@ -49,6 +49,7 @@ with st.sidebar:
         )
 
         model = selected_agent["agent"]
+        model_id = selected_agent["id"]
     # st.subheader("Document Upload")
     # uploaded_file = st.file_uploader(
     #     "Document Upload", 
@@ -72,9 +73,9 @@ with st.sidebar:
     # UPLOAD VISIBLE ONLY FOR EXTERNAL SOURCE
 
     uploaded_file = None
-    if model == "BIR AI":
+    if model == "General":
         uploaded_file = st.file_uploader(
-            "Document Upload (BIR AI agent only)", 
+            "Document Upload (General agent only)", 
             type=["pdf", "csv", "txt", "xlsx", "docx"],
         )
         if uploaded_file:
@@ -109,17 +110,19 @@ if prompt := st.chat_input("Ask about anything..."):
 
                 # --- NEW ENDPOINT LOGIC WITH TERMINAL PRINTS ---
                 if model == "Revie":
+                    endpoint = ENDPOINTS["revie"]
                     print(f"\n[DEBUG] Model Selected: {model}")
-                    print(f"[DEBUG] Calling Endpoint: {REVIE_URL}")
+                    print(f"[DEBUG] Calling Endpoint: {endpoint}")
                     
-                    headers = {
-                        "X-GPT-API-Key": REVIE_API_KEY, 
-                        "Content-Type": "application/json"
+                    payload = {
+                        "prompt": prompt,
+                        "agent": model,
+                        "history": json.dumps(st.session_state.messages[:-1])
                     }
-                    data = {"prompt": prompt}
-                    response = requests.post(REVIE_URL, json=data, headers=headers, timeout=180)
+                    response = requests.post(endpoint, data=payload, timeout=180)
+                    
                 # --- CASE 2: EXTERNAL SOURCE ---
-                elif model == "BIR AI":
+                elif model == "General":
                     endpoint = ENDPOINTS["openai"]
                     payload = {
                         "prompt": prompt, 
@@ -161,7 +164,7 @@ if prompt := st.chat_input("Ask about anything..."):
                     
                     payload = {
                         "prompt": prompt,
-                        "agent": model,
+                        "agent": model_id,
                         "history": json.dumps(st.session_state.messages[:-1])
                     }
                     response = requests.post(endpoint, data=payload, timeout=180)

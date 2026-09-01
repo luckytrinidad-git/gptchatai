@@ -4,7 +4,7 @@ import uuid
 import psycopg2
 from psycopg2.extras import execute_values
 
-from django.db import connections
+from django.db import connections, transaction
 from django.conf import settings
 from ninja import Router, Form, File
 from ninja.files import UploadedFile
@@ -31,54 +31,627 @@ def search_bir_knowledge_base(
     query_embedding,
     agent_name,
     user_question,
+    document=None,
     limit=5,
 ):
     """
-    Enterprise retrieval pipeline.
+    PostgreSQL + pgvector retrieval for BIR documents.
 
-    Stage 1
-        Exact document lookup
+    Retrieval strategy:
 
-    Stage 2
-        Semantic search (70%)
+    1. If a document reference is detected:
+       - Find matching topic_title first.
+       - Retrieve chunks belonging to that topic.
+       - Rank those chunks semantically.
 
-    Stage 3
-        Semantic fallback (50%)
+    2. If no exact/strong document match is found:
+       - Perform semantic search across the selected agent.
+
+    3. Semantic fallback is marked separately so the LLM
+       knows that the retrieved document may not be the
+       document explicitly requested.
     """
 
-    ############################################################
-    # CONNECT TO QDRANT
-    ############################################################
+    ###########################################################
+    # CONFIGURATION
+    ###########################################################
 
-    config = settings.QDRANT_CONFIG
+    EXACT_TITLE_THRESHOLD = 0.90
+    SEMANTIC_THRESHOLD = 0.50
 
-    client = qdrant_client.QdrantClient(
-        host=config["HOST"],
-        port=config["PORT"],
-        api_key=config["API_KEY"],
-        https=False,
-        prefer_grpc=False,
-        check_compatibility=False,
+    ###########################################################
+    # 1. GET AGENT ID
+    ###########################################################
+
+    with connections["birai_db"].cursor() as cursor:
+
+        cursor.execute(
+            """
+            SELECT id
+            FROM kx_agents
+            WHERE agent = %s
+            """,
+            (agent_name,),
+        )
+
+        row = cursor.fetchone()
+
+    if not row:
+
+        print(
+            f"WARNING: Agent not found: {agent_name}"
+        )
+
+        return {
+            "contexts": [],
+            "match_type": "none",
+            "best_score": 0,
+        }
+
+    agent_id = row[0]
+
+    ###########################################################
+    # 2. DOCUMENT-AWARE SEARCH
+    ###########################################################
+
+    if document:
+
+        print("=" * 70)
+        print("DOCUMENT-AWARE SEARCH")
+        print(
+            f"Type   : {document['doc_type']}"
+        )
+        print(
+            f"Number : {document['doc_number']}"
+        )
+        print(
+            f"Variants: {document['variants']}"
+        )
+        print("=" * 70)
+
+        #######################################################
+        # 2A. Find matching topic
+        #######################################################
+
+        topic_id = None
+        topic_title = None
+
+        with connections["birai_db"].cursor() as cursor:
+
+            # First try exact normalized title matching.
+            cursor.execute(
+                """
+                SELECT
+                    id,
+                    topic_title
+                FROM kx_topics
+                WHERE agent_id = %s
+                AND (
+                    LOWER(
+                        REGEXP_REPLACE(
+                            topic_title,
+                            '[^a-zA-Z0-9]+',
+                            '',
+                            'g'
+                        )
+                    )
+                    =
+                    LOWER(
+                        REGEXP_REPLACE(
+                            %s,
+                            '[^a-zA-Z0-9]+',
+                            '',
+                            'g'
+                        )
+                    )
+                )
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (
+                    agent_id,
+                    document["variants"][0],
+                ),
+            )
+
+            row = cursor.fetchone()
+
+        #######################################################
+        # 2B. Try all title variants
+        #######################################################
+
+        if row:
+
+            topic_id = row[0]
+            topic_title = row[1]
+
+        else:
+
+            print(
+                "No normalized exact title match."
+            )
+
+            with connections["birai_db"].cursor() as cursor:
+
+                conditions = []
+                params = []
+
+                for variant in document["variants"]:
+
+                    conditions.append(
+                        """
+                        LOWER(topic_title)
+                        LIKE LOWER(%s)
+                        """
+                    )
+
+                    params.append(
+                        f"%{variant}%"
+                    )
+
+                if conditions:
+
+                    sql = f"""
+                        SELECT
+                            id,
+                            topic_title
+                        FROM kx_topics
+                        WHERE agent_id = %s
+                        AND (
+                            {" OR ".join(conditions)}
+                        )
+                        ORDER BY id DESC
+                        LIMIT 1
+                    """
+
+                    cursor.execute(
+                        sql,
+                        [agent_id] + params,
+                    )
+
+                    row = cursor.fetchone()
+
+                    if row:
+
+                        topic_id = row[0]
+                        topic_title = row[1]
+
+        #######################################################
+        # 2C. Exact document found
+        #######################################################
+
+        if topic_id:
+
+            print("=" * 70)
+            print("DOCUMENT MATCH FOUND")
+            print(
+                f"Topic ID    : {topic_id}"
+            )
+            print(
+                f"Topic Title : {topic_title}"
+            )
+            print("=" * 70)
+
+            ###################################################
+            # Retrieve chunks belonging to this document
+            ###################################################
+
+            with connections["birai_db"].cursor() as cursor:
+
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        filename,
+                        content,
+                        chunk_index,
+                        embedding
+                    FROM bir_document
+                    WHERE kx_topics_id = %s
+                    """,
+                    (topic_id,),
+                )
+
+                rows = cursor.fetchall()
+
+            ###################################################
+            # Rank chunks using pgvector
+            ###################################################
+
+            ranked_chunks = []
+
+            for row in rows:
+
+                chunk_id = row[0]
+                filename = row[1]
+                content = row[2]
+                chunk_index = row[3]
+
+                # We cannot calculate pgvector similarity
+                # here using Python if the vector isn't loaded
+                # into a usable format, so use PostgreSQL
+                # directly below instead.
+                ranked_chunks.append(
+                    {
+                        "id": chunk_id,
+                        "filename": filename,
+                        "content": content,
+                        "chunk_index": chunk_index,
+                    }
+                )
+
+            ###################################################
+            # Use PostgreSQL pgvector to rank the chunks
+            ###################################################
+
+            if ranked_chunks:
+
+                with connections["birai_db"].cursor() as cursor:
+
+                    cursor.execute(
+                        """
+                        SELECT
+                            d.id,
+                            d.filename,
+                            d.content,
+                            d.chunk_index,
+                            1 - (
+                                d.embedding
+                                <=> %s::vector
+                            ) AS similarity
+                        FROM bir_document d
+                        WHERE d.kx_topics_id = %s
+                        AND d.embedding IS NOT NULL
+                        ORDER BY
+                            d.embedding
+                            <=> %s::vector
+                        LIMIT %s
+                        """,
+                        [
+                            query_embedding,
+                            topic_id,
+                            query_embedding,
+                            limit,
+                        ],
+                    )
+
+                    ranked_rows = cursor.fetchall()
+
+                ################################################
+                # Build context
+                ################################################
+
+                contexts = []
+
+                best_score = 0
+
+                for row in ranked_rows:
+
+                    similarity = float(
+                        row[4]
+                    )
+
+                    best_score = max(
+                        best_score,
+                        similarity
+                    )
+
+                    contexts.append(
+                        f"""
+==================================================
+
+Document Title:
+{topic_title}
+
+Filename:
+{row[1]}
+
+Similarity Score:
+{similarity:.3f}
+
+Match Type:
+EXACT DOCUMENT
+
+Content:
+
+{row[2]}
+
+==================================================
+"""
+                    )
+
+                print("=" * 70)
+                print("EXACT DOCUMENT RETRIEVAL")
+                print(
+                    f"Topic       : {topic_title}"
+                )
+                print(
+                    f"Best Score  : {best_score:.3f}"
+                )
+                print(
+                    f"Chunks      : {len(contexts)}"
+                )
+                print("=" * 70)
+
+                return {
+                    "contexts": contexts,
+                    "match_type": "exact",
+                    "best_score": round(
+                        best_score,
+                        3
+                    ),
+                }
+
+    ###########################################################
+    # 3. SEMANTIC FALLBACK
+    ###########################################################
+
+    print("=" * 70)
+    print("SEMANTIC FALLBACK")
+    print(
+        "No exact document match was found."
     )
+    print("=" * 70)
 
-    collection_name = config.get(
-        "COLLECTION_NAME",
-        "bir_rag_documents",
-    )
+    ###########################################################
+    # Search all chunks belonging to selected agent
+    ###########################################################
 
-    ############################################################
-    # DOCUMENT DETECTION
-    ############################################################
+    with connections["birai_db"].cursor() as cursor:
 
-    document = extract_document_reference(user_question)
+        cursor.execute(
+            """
+            SELECT
+                d.id,
+                d.filename,
+                d.content,
+                d.chunk_index,
+                t.topic_title,
+                1 - (
+                    d.embedding
+                    <=> %s::vector
+                ) AS similarity
+            FROM bir_document d
 
-    results = []
-    match_type = "semantic"
+            INNER JOIN kx_topics t
+                ON d.kx_topics_id = t.id
+
+            WHERE t.agent_id = %s
+            AND d.embedding IS NOT NULL
+
+            AND (
+                1 - (
+                    d.embedding
+                    <=> %s::vector
+                )
+            ) >= %s
+
+            ORDER BY
+                d.embedding
+                <=> %s::vector
+
+            LIMIT %s
+            """,
+            [
+                query_embedding,
+                agent_id,
+                query_embedding,
+                SEMANTIC_THRESHOLD,
+                query_embedding,
+                limit,
+            ],
+        )
+
+        rows = cursor.fetchall()
+
+    ###########################################################
+    # 4. NO SEMANTIC RESULTS
+    ###########################################################
+
+    if not rows:
+
+        print(
+            "No semantic documents found."
+        )
+
+        return {
+            "contexts": [],
+            "match_type": "none",
+            "best_score": 0,
+        }
+
+    ###########################################################
+    # 5. BUILD SEMANTIC CONTEXT
+    ###########################################################
+
+    contexts = []
+
     best_score = 0
 
-    ############################################################
-    # STAGE 1
-    ############################################################
+    for row in rows:
+
+        similarity = float(
+            row[5]
+        )
+
+        best_score = max(
+            best_score,
+            similarity
+        )
+
+        contexts.append(
+            f"""
+==================================================
+
+Document Title:
+{row[4]}
+
+Filename:
+{row[1]}
+
+Similarity Score:
+{similarity:.3f}
+
+Match Type:
+SEMANTIC FALLBACK
+
+Content:
+
+{row[2]}
+
+==================================================
+"""
+        )
+
+    ###########################################################
+    # 6. LOG RESULT
+    ###########################################################
+
+    print("=" * 70)
+    print("SEMANTIC RETRIEVAL RESULT")
+    print(
+        f"Best Score : {best_score:.3f}"
+    )
+    print(
+        f"Chunks     : {len(contexts)}"
+    )
+    print("=" * 70)
+
+    return {
+        "contexts": contexts,
+        "match_type": "semantic",
+        "best_score": round(
+            best_score,
+            3
+        ),
+    }
+
+@router.post("/ask-bir")
+def ask_bir(
+    request,
+    data: Form[PromptInput],
+):
+    prompt = data.prompt
+
+    ###########################################################
+    # 1. VALIDATE PROMPT
+    ###########################################################
+
+    if not prompt or not prompt.strip():
+
+        return {
+            "response": "Please provide a question.",
+            "match_type": "none",
+            "score": 0,
+            "documents": 0,
+        }
+
+    prompt = prompt.strip()
+
+    ###########################################################
+    # 2. CHAT HISTORY
+    ###########################################################
+
+    agent_id = data.agent
+
+    try:
+
+        history = json.loads(data.history)
+
+    except Exception:
+
+        history = []
+
+    ###########################################################
+    # 3. GET AGENT NAME
+    ###########################################################
+
+    try:
+
+        with connections["birai_db"].cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT agent
+                FROM kx_agents
+                WHERE id = %s
+                """,
+                (agent_id,),
+            )
+
+            row = cursor.fetchone()
+
+            if not row:
+
+                return {
+                    "response": "Invalid BIR agent.",
+                    "match_type": "none",
+                    "score": 0,
+                    "documents": 0,
+                }
+
+            agent_name = row[0]
+
+    except Exception as e:
+
+        print(
+            f"Agent lookup error: {str(e)}"
+        )
+
+        return {
+            "response": (
+                "Unable to determine the selected "
+                "BIR agent."
+            ),
+            "match_type": "none",
+            "score": 0,
+            "documents": 0,
+        }
+
+    ###########################################################
+    # 4. GENERATE QUERY EMBEDDING
+    ###########################################################
+
+    try:
+
+        query_embedding = get_embedding(prompt)
+
+        query_embedding = [
+            float(value)
+            for value in query_embedding
+        ]
+
+        if len(query_embedding) != 1536:
+
+            raise ValueError(
+                "Invalid query embedding dimension. "
+                f"Expected 1536, got "
+                f"{len(query_embedding)}."
+            )
+
+    except Exception as e:
+
+        print(
+            f"Embedding error: {str(e)}"
+        )
+
+        return {
+            "response": (
+                "Unable to process the question "
+                "for knowledge-base retrieval."
+            ),
+            "match_type": "none",
+            "score": 0,
+            "documents": 0,
+        }
+
+    ###########################################################
+    # 5. DOCUMENT REFERENCE DETECTION
+    ###########################################################
+
+    document = extract_document_reference(
+        prompt
+    )
 
     if document:
 
@@ -87,420 +660,132 @@ def search_bir_knowledge_base(
         print(document)
         print("=" * 70)
 
-        results = run_exact_document_lookup(
-            client=client,
-            collection_name=collection_name,
+    ###########################################################
+    # 6. RETRIEVE FROM POSTGRESQL + PGVECTOR
+    ###########################################################
+
+    try:
+
+        retrieval = search_bir_knowledge_base(
+            query_embedding=query_embedding,
             agent_name=agent_name,
-            title_variants=document["variants"],
-        )
-        
-        print("=" * 80)
-        print("EXACT LOOKUP RESULTS")
-        print("=" * 80)
-            
-        if results:
-
-            match_type = "exact"
-
-            # Exact lookup isn't vector-based.
-            best_score = 1.0
-
-    ############################################################
-    # STAGE 2 + 3
-    ############################################################
-
-    if not results:
-
-        (
-            results,
-            match_type,
-            best_score,
-        ) = semantic_with_fallback(
-            client=client,
-            collection_name=collection_name,
-            embedding=query_embedding,
-            agent_name=agent_name,
-            limit=limit,
+            user_question=prompt,
+            document=document,
+            limit=5,
         )
 
-    ############################################################
-    # NOTHING FOUND
-    ############################################################
+    except Exception as e:
 
-    if not results:
+        print("=" * 70)
+        print("BIR RETRIEVAL ERROR")
+        print(str(e))
+        print("=" * 70)
 
-        return {
+        retrieval = {
             "contexts": [],
             "match_type": "none",
             "best_score": 0,
         }
 
-    ############################################################
-    # GROUP RESULTS
-    ############################################################
+    ###########################################################
+    # 7. PREPARE CONTEXT
+    ###########################################################
 
-    grouped = {}
+    contexts = retrieval.get(
+        "contexts",
+        []
+    )
 
-    topic_ids = set()
+    match_type = retrieval.get(
+        "match_type",
+        "none"
+    )
 
-    for hit in results:
+    best_score = retrieval.get(
+        "best_score",
+        0
+    )
 
-        payload = hit.payload
+    no_docs_found = not contexts
 
-        topic_id = payload.get("topic_id")
+    if contexts:
 
-        if not topic_id:
-            continue
-
-        topic_ids.add(topic_id)
-
-        grouped.setdefault(topic_id, [])
-
-        grouped[topic_id].append({
-
-            "content": payload.get("content", ""),
-
-            "filename": payload.get("filename", ""),
-
-            "topic_title": payload.get("topic_title", ""),
-
-            "chunk_index": payload.get("chunk_index", 0),
-
-            "score": getattr(hit, "score", 1.0),
-
-        })
-
-    ############################################################
-    # SORT CHUNKS
-    ############################################################
-
-    for topic_id in grouped:
-
-        grouped[topic_id].sort(
-            key=lambda x: x["chunk_index"]
+        context = "\n\n".join(
+            contexts
         )
 
-    ############################################################
-    # LOAD POSTGRES METADATA
-    ############################################################
+    else:
 
-    metadata = {}
-
-    if topic_ids:
-
-        placeholders = ",".join(
-            ["%s"] * len(topic_ids)
+        context = (
+            "No relevant documents were found "
+            "in the Internal Knowledge Base."
         )
 
-        sql = f"""
-        SELECT
-            id,
-            topic_title,
-            office_type,
-            office_division,
-            classification,
-            uploaded_by
-        FROM kx_topics
-        WHERE id IN ({placeholders})
-        """
-
-        with connections["birai_db"].cursor() as cursor:
-
-            cursor.execute(
-                sql,
-                list(topic_ids),
-            )
-
-            for row in cursor.fetchall():
-
-                metadata[row[0]] = {
-
-                    "title": row[1],
-
-                    "office_type": row[2],
-
-                    "division": row[3],
-
-                    "classification": row[4],
-
-                    "uploaded_by": row[5],
-
-                }
-
-    ############################################################
-    # BUILD CONTEXT
-    ############################################################
-
-    contexts = []
-
-    for topic_id, chunks in grouped.items():
-
-        meta = metadata.get(topic_id, {})
-
-        title = meta.get(
-            "title",
-            chunks[0]["topic_title"],
-        )
-
-        office = meta.get(
-            "office_type",
-            "",
-        )
-
-        division = meta.get(
-            "division",
-            "",
-        )
-
-        classification = meta.get(
-            "classification",
-            "",
-        )
-
-        uploader = meta.get(
-            "uploaded_by",
-            "",
-        )
-
-        ####################################################
-        # Merge ALL chunks into ONE document
-        ####################################################
-
-        merged_text = "\n\n".join(
-
-            chunk["content"]
-
-            for chunk in chunks
-
-        )
-
-        ####################################################
-        # Highest score among chunks
-        ####################################################
-
-        highest_score = max(
-
-            chunk["score"]
-
-            for chunk in chunks
-
-        )
-
-        ####################################################
-        # Context
-        ####################################################
-
-        context = f"""
-==================================================
-
-Document Title:
-{title}
-
-Filename:
-{chunks[0]['filename']}
-
-Match Type:
-{match_type}
-
-Similarity Score:
-{highest_score:.3f}
-
-Office:
-{office}
-
-Division:
-{division}
-
-Classification:
-{classification}
-
-Uploaded By:
-{uploader}
-
-Content:
-
-{merged_text}
-
-==================================================
-"""
-
-        contexts.append(context)
-
-    ############################################################
-    # SORT DOCUMENTS
-    ############################################################
-
-    contexts.sort()
-
-    ############################################################
-    # DEBUG
-    ############################################################
+    ###########################################################
+    # 8. DEBUG INFORMATION
+    ###########################################################
 
     print("=" * 70)
+    print("BIR RETRIEVAL RESULT")
+    print(f"Agent      : {agent_name}")
+    print(f"Question   : {prompt}")
     print(f"Match Type : {match_type}")
-    print(f"Best Score : {best_score:.3f}")
+    print(f"Best Score : {best_score}")
     print(f"Documents  : {len(contexts)}")
     print("=" * 70)
 
-    ############################################################
-    # RETURN
-    ############################################################
-
-    return {
-
-        "contexts": contexts,
-
-        "match_type": match_type,
-
-        "best_score": round(best_score, 3),
-
-    }
-
-
-@router.post("/ask-bir")
-def ask_bir(request, data: Form[PromptInput], file: UploadedFile = File(None)):
-    prompt = data.prompt
-
     ###########################################################
-    # 1. INDEXING (BACKWARD COMPATIBILITY)
+    # 9. GPT
     ###########################################################
 
-    if file:
+    try:
 
-        file_bytes = file.read()
+        if no_docs_found:
 
-        text = extract_text(
-            file.name,
-            file_bytes,
-        )
-
-        text = text.replace("\x00", "").strip()
-
-        chunks = chunk_text(text)
-
-        indexed_count = 0
-
-        for i, chunk in enumerate(chunks):
-
-            chunk = chunk.strip()
-
-            if len(chunk) < 30:
-                continue
-
-            embedding = get_embedding(chunk)
-            embedding = [float(x) for x in embedding]
-
-            BIRDocument.objects.using("birai_db").create(
-
-                filename=file.name,
-
-                content=chunk,
-
-                chunk_index=i,
-
-                embedding=embedding,
-
-                chunk_length=len(chunk),
-
+            response = bir_openai_gpt45(
+                prompt=prompt,
+                from_ask_bir=True,
             )
 
-            indexed_count += 1
+        else:
+
+            response = openai_gpt45(
+                prompt=prompt,
+                context=context,
+                history=history,
+                match_type=match_type,
+                best_score=best_score,
+            )
+
+    except Exception as e:
+
+        print(
+            f"GPT ERROR: {str(e)}"
+        )
 
         return {
-            "response": f"Indexed {indexed_count} chunks."
+            "response": (
+                "An error occurred while "
+                "generating the response."
+            ),
+            "match_type": match_type,
+            "score": best_score,
+            "documents": len(contexts),
         }
 
     ###########################################################
-    # 2. CHAT HISTORY
+    # 10. RETURN
     ###########################################################
 
-    agent_name = data.agent
-
-    try:
-        history = json.loads(data.history)
-
-    except Exception:
-        history = []
-
-    ###########################################################
-    # 3. EMBEDDING
-    ###########################################################
-
-    query_embedding = get_embedding(prompt)
-
-    ###########################################################
-    # 4. RETRIEVAL
-    ###########################################################
-
-    retrieval = search_bir_knowledge_base(
-
-        query_embedding=query_embedding,
-
-        agent_name=agent_name,
-
-        user_question=prompt,
-
-        limit=5,
-
-    )
-
-    no_docs_found = False
-    
-    if retrieval["contexts"]:
-
-        context = "\n\n".join(
-            retrieval["contexts"]
-        )
-
-    else:
-        no_docs_found = True
-        context = (
-            "No relevant documents were found in the "
-            "Internal Knowledge Base."
-        )
-
-    print("=" * 70)
-    print(f"Match Type : {retrieval['match_type']}")
-    print(f"Best Score : {retrieval['best_score']}")
-    print(f"Documents  : {len(retrieval['contexts'])}")
-    print("=" * 70)
-
-    ###########################################################
-    # 5. GPT
-    ###########################################################
-    if no_docs_found:
-        
-        response = bir_openai_gpt45(prompt=prompt, from_ask_bir=True)
-        
-    else:
-        
-        response = openai_gpt45(
-
-            prompt=prompt,
-
-            context=context,
-
-            history=history,
-
-            match_type=retrieval["match_type"],
-
-            best_score=retrieval["best_score"],
-
-        )
-
-    ###########################################################
-    # 6. RETURN
-    ###########################################################
-    
     return {
 
         "response": response,
 
-        "match_type": retrieval["match_type"],
+        "match_type": match_type,
 
-        "score": retrieval["best_score"],
+        "score": best_score,
 
-        "documents": len(retrieval["contexts"]),
+        "documents": len(contexts),
 
     }
 
@@ -514,127 +799,364 @@ def ingest_knowledge(
     file: UploadedFile = File(...),
     title: str = Form(...),
     agent: str = Form(...),
-    office_type: str = Form(""),
-    division: str = Form(""),
-    classification: str = Form(""),
     uploaded_by: str = Form("Admin")
 ):
     conn = None
+
     try:
+
+        ###########################################################
+        # 1. READ FILE
+        ###########################################################
+
         file_bytes = file.read()
-        file.seek(0)
-        file_cid = upload_to_ipfs(file)        
-        
-        # 1. Extraction
-        text_content = extract_text(file.name, file_bytes)
+
+        if not file_bytes:
+            return {
+                "status": "error",
+                "message": "Uploaded file is empty."
+            }
+
+        print("=" * 70)
+        print("BIR KNOWLEDGE INGESTION")
+        print(f"File: {file.name}")
+        print(f"Size: {len(file_bytes):,} bytes")
+        print("=" * 70)
+
+        ###########################################################
+        # 2. EXTRACT TEXT
+        ###########################################################
+
+        print("Extracting text...")
+
+        text_content = extract_text(
+            file.name,
+            file_bytes
+        )
+
         if not text_content:
-            return {"status": "error", "message": "Text extraction failed"}
-            
-        clean_content = text_content.replace('\x00', '').strip()
-        chunks = chunk_text(clean_content, chunk_size=800, overlap=150)
 
-        # 2. Database Connection Check
-        conn = connections['birai_db']
+            return {
+                "status": "error",
+                "message": "Text extraction failed."
+            }
+
+        clean_content = (
+            text_content
+            .replace("\x00", "")
+            .strip()
+        )
+
+        if not clean_content:
+
+            return {
+                "status": "error",
+                "message": "No text could be extracted from the file."
+            }
+            
+
+        ###########################################################
+        # 3. CHUNK DOCUMENT
+        ###########################################################
+
+        chunks = chunk_text(
+            clean_content,
+            chunk_size=800,
+            overlap=150
+        )
+
+        valid_chunks = []
+
+        for idx, chunk in enumerate(chunks):
+
+            chunk = chunk.strip()
+
+            if len(chunk) < 30:
+                continue
+
+            valid_chunks.append(
+                (idx, chunk)
+            )
+
+        print(
+            f"Extracted {len(valid_chunks)} valid chunks."
+        )
+
+        if not valid_chunks:
+
+            return {
+                "status": "error",
+                "message": "No valid document chunks were generated."
+            }
+        ###########################################################
+        # 4. UPLOAD TO IPFS
+        ###########################################################
+
+        print("Uploading file to IPFS...")
+
+        file_cid = upload_to_ipfs(
+            file_name=file.name,
+            file_bytes=file_bytes,
+            content_type=(
+                file.content_type
+                or "application/json"
+            ),
+        )
+
+        print(f"IPFS CID: {file_cid}")
+
+        ###########################################################
+        # 5. DATABASE
+        ###########################################################
+
+        conn = connections["birai_db"]
+
+        print("=" * 70)
+        print("DATABASE")
+        print(
+            f"Target DB: "
+            f"{conn.settings_dict.get('NAME')} "
+            f"@ "
+            f"{conn.settings_dict.get('HOST')}"
+        )
+        print("=" * 70)
+
+        ###########################################################
+        # 6. TRANSACTION
+        ###########################################################
+
+        with transaction.atomic(
+            using="birai_db"
+        ):
+
+            with conn.cursor() as cursor:
+
+                cursor.execute(
+                    """
+                    SELECT agent
+                    FROM kx_agents
+                    WHERE id = %s
+                    """,
+                    (agent,),
+                )
+
+                row = cursor.fetchone()
+
+                if not row:
+
+                    return {
+                        "status": "error",
+                        "message": (
+                            f"Agent with ID {agent} "
+                            "was not found."
+                        )
+                    }
+
+                agent_name = row[0]
+
+                title = (
+                    title.strip()
+                    if title
+                    else os.path.splitext(file.name)[0]
+                )
         
-        print(f"--- INGESTION START ---")
-        print(f"Target DB: {conn.settings_dict.get('NAME')} @ {conn.settings_dict.get('HOST')}")
-        print(f"File: {file.name} | Chunks: {len(chunks)}")
-
-        with conn.cursor() as cursor:
-            # 3. Insert Master Record into PostgreSQL
-            
-            cursor.execute(
-                """
-                SELECT agent
-                FROM kx_agents
-                WHERE id = %s
-                """,
-                (agent,),
-            )
-
-            row = cursor.fetchone()
-
-            agent_name = row[0] if row else None
-            
-            title = title if title else os.path.splitext(file.name)[0]
-            
-            cursor.execute("""
-                INSERT INTO kx_topics (
-                    topic_title, agent, office_type, office_division, 
-                    classification, file_name, file_data, uploaded_by,
-                    agent_id, file_cid
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
-            """, [title, agent_name, office_type, division, classification, 
-                  file.name, psycopg2.Binary(file_bytes), uploaded_by,
-                  agent, file_cid])
-            
-            topic_id = cursor.fetchone()[0]
-            print(f"Master Record Created: ID {topic_id}")
-
-            # 4. Standardized Client Initialization for Chunk Processing
-            config = settings.QDRANT_CONFIG
-            collection_name = config.get("COLLECTION_NAME", "bir_rag_documents")
-            
-            # Using 'client' prevents scoping conflicts with the module name 'qdrant_client'
-            client = qdrant_client.QdrantClient(
-                host=config["HOST"],
-                port=config["PORT"],
-                api_key=config["API_KEY"],
-                prefer_grpc=False,
-                https=False,
-                check_compatibility=False
-            )
-            
-            qdrant_points = []
-            for idx, chunk in enumerate(chunks):
-                if len(chunk.strip()) < 30: 
-                    continue
-                
-                enriched_chunk = f"Document: {title}. Bureau of Internal Revenue Philippines. Section Content:\n{chunk}"
-                vector = get_embedding(enriched_chunk)
-                point_id = str(uuid.uuid4())
-                
-                print("agent: ",agent_name)
-                qdrant_points.append(
-                    PointStruct(
-                        id=point_id,
-                        vector=vector,
-                        payload={
-                            "topic_id": topic_id,
-                            "topic_title": title,
-                            "agent": agent_name,
-                            "filename": file.name,
-                            "content": chunk,
-                            "chunk_index": idx,
-                            "chunk_length": len(chunk),
-                            "office_type": office_type,
-                            "office_division": division,
-                            "classification": classification
-                        }
+                print("Creating KX topic...")
+        
+                with connections["birai_db"].cursor() as cursor:
+        
+                    cursor.execute(
+                        """
+                        INSERT INTO kx_topics (
+                            topic_title,
+                            agent,
+                            file_name,
+                            uploaded_by,
+                            agent_id,
+                            file_cid
+                        )
+                        VALUES (
+                            %s,
+                            %s,
+                            %s,
+                            %s,
+                            %s,
+                            %s
+                        )
+                        RETURNING id
+                        """,
+                        [
+                            title,
+                            agent_name,
+                            file.name,
+                            uploaded_by,
+                            agent,
+                            file_cid,
+                        ],
                     )
-                )
-            
-            # 5. Bulk Insert into Qdrant Vector Engine with verified variable names
-            if qdrant_points:
-                client.upsert(
-                    collection_name=collection_name,
-                    wait=True,
-                    points=qdrant_points
-                )
-                print(f"Inserted {len(qdrant_points)} vector chunks into Qdrant Container.")
+        
+                    topic_id = cursor.fetchone()[0]
+        
+                    print(
+                        f"Master Record Created: "
+                        f"ID {topic_id}"
+                    )
 
-        # 6. Force Commit relational records
-        conn.commit()
-        print(f"--- TRANSACTION COMMITTED ---")
+                    ###################################################
+                    # GENERATE + INSERT EMBEDDINGS
+                    ###################################################
+
+                    inserted_chunks = 0
+
+                    print(
+                        "Generating embeddings..."
+                    )
+
+                    for chunk_index, chunk in valid_chunks:
+
+                        print(
+                            f"Embedding chunk "
+                            f"{inserted_chunks + 1}/"
+                            f"{len(valid_chunks)}..."
+                        )
+
+                        ################################################
+                        # Enriched embedding text
+                        ################################################
+
+                        enriched_chunk = (
+                            f"Document: {title}. "
+                            f"Bureau of Internal Revenue "
+                            f"Philippines. "
+                            f"Section Content:\n"
+                            f"{chunk}"
+                        )
+
+                        ################################################
+                        # Generate embedding
+                        ################################################
+
+                        vector = get_embedding(
+                            enriched_chunk
+                        )
+
+                        ################################################
+                        # Validate embedding
+                        ################################################
+
+                        if not vector:
+
+                            print(
+                                f"WARNING: Empty embedding "
+                                f"for chunk {chunk_index}"
+                            )
+
+                            continue
+
+                        vector = [
+                            float(value)
+                            for value in vector
+                        ]
+
+                        ################################################
+                        # Verify dimensions
+                        ################################################
+
+                        if len(vector) != 1536:
+
+                            raise ValueError(
+                                f"Invalid embedding dimension "
+                                f"for chunk {chunk_index}: "
+                                f"expected 1536, "
+                                f"got {len(vector)}"
+                            )
+
+                        ################################################
+                        # Insert chunk into PostgreSQL
+                        ################################################
+
+                        cursor.execute(
+                            """
+                            INSERT INTO bir_document (
+                                kx_topics_id,
+                                filename,
+                                content,
+                                chunk_index,
+                                embedding,
+                                chunk_length
+                            )
+                            VALUES (
+                                %s,
+                                %s,
+                                %s,
+                                %s,
+                                %s,
+                                %s
+                            )
+                            """,
+                            [
+                                topic_id,
+                                file.name,
+                                chunk,
+                                chunk_index,
+                                vector,
+                                len(chunk),
+                            ],
+                        )
+
+                        inserted_chunks += 1
+
+                ###################################################
+                # Verify
+                ###################################################
+
+                print(
+                    f"Inserted {inserted_chunks} "
+                    f"chunks into PostgreSQL."
+                )
+
+        ###########################################################
+        # 7. SUCCESS
+        ###########################################################
+
+        print("=" * 70)
+        print("TRANSACTION COMMITTED")
+        print(
+            f"Topic ID : {topic_id}"
+        )
+        print(
+            f"Chunks   : {inserted_chunks}"
+        )
+        print(
+            f"IPFS CID : {file_cid}"
+        )
+        print("=" * 70)
 
         return {
-            "status": "success", 
-            "topic_id": topic_id, 
-            "chunks": len(qdrant_points)
+            "status": "success",
+            "topic_id": topic_id,
+            "chunks": inserted_chunks,
+            "file_cid": file_cid,
         }
 
+    ###############################################################
+    # 8. ERROR HANDLING
+    ###############################################################
+
     except Exception as e:
+
+        print("=" * 70)
+        print("!!! BIR INGESTION ERROR !!!")
+        print(str(e))
+        print("=" * 70)
+
         if conn:
-            conn.rollback()
-        print(f"!!! INGESTION ERROR: {str(e)}")
-        return {"status": "error", "message": str(e)}
+
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+        return {
+            "status": "error",
+            "message": str(e)
+        }

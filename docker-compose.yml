@@ -1,6 +1,7 @@
 version: "3.9"
 
 services:
+
   api:
     build: ./gptchatbot-api
     container_name: birgptchatbot-api
@@ -11,7 +12,36 @@ services:
     environment:
       - PYTHONPATH=/app
       - DJANGO_SETTINGS_MODULE=gptchatbot.settings
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
     restart: always
+
+
+  celery:
+    build: ./gptchatbot-api
+    container_name: birgptchatbot-celery
+    command: celery -A gptchatbot worker --loglevel=info
+    volumes:
+      - ./gptchatbot-api:/app
+    environment:
+      - PYTHONPATH=/app
+      - DJANGO_SETTINGS_MODULE=gptchatbot.settings
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: always
+
+
+  redis:
+    image: redis:7-alpine
+    container_name: birgptchatbot-redis
+    ports:
+      - "6379:6379"
+    restart: always
+
 
   ui:
     build: ./gptchatbot-ui
@@ -20,9 +50,9 @@ services:
       - "8001:8001"
     volumes:
       - ./gptchatbot-ui:/app
-      - ./gptchatbot-api:/gptchatbot-api 
+      - ./gptchatbot-api:/gptchatbot-api
     environment:
-      - PYTHONPATH=/app:/gptchatbot-api  
+      - PYTHONPATH=/app:/gptchatbot-api
       - DJANGO_SETTINGS_MODULE=gptchatbot.settings
     depends_on:
       - api

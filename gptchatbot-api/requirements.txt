@@ -105,3 +105,5 @@ python-pptx==1.0.2
 odfpy==1.4.1
 striprtf==0.0.29
 extract-msg==0.55.0
+celery
+redis
