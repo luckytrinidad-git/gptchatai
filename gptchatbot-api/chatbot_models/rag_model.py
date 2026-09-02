@@ -37,7 +37,7 @@ EXACT
 - The requested document was found.
 - Treat it as authoritative.
 
-SEMANTIC_HIGH
+SEMANTIC
 - The requested document was not found exactly.
 - Similarity >= 0.70.
 - These are highly related documents.
@@ -192,7 +192,7 @@ base the analysis only on the retrieved document.
 • Always cite the document title.
 """
 
-    elif match_type == "semantic_high":
+    elif match_type == "semantic":
 
         user_prompt = f"""
 USER QUESTION
@@ -203,7 +203,7 @@ USER QUESTION
 
 MATCH TYPE
 
-SEMANTIC_HIGH
+SEMANTIC
 
 Similarity Score
 
@@ -232,6 +232,13 @@ Instructions
 • Provide a professional answer.
 
 • Cite every document used.
+Citation rules:
+- Cite only the actual source document(s) used to support the answer.
+- Do not cite or mention chunk numbers, chunk IDs, similarity scores, or internal retrieval metadata.
+- When multiple documents are used, cite each actual document that supports the relevant information.
+- Do not cite documents that were not used to formulate the answer.
+- If the retrieved context does not contain enough information to support a claim, say so rather than citing an unrelated document or relying on an unsupported reference.
+- Preserve the document title/reference as provided in the retrieved context when citing the source.
 """
 
     elif match_type == "semantic_low":

@@ -72,3 +72,30 @@ def get_audit_log(request):
         dict(zip(columns, row))
         for row in rows
     ]
+    
+# @router.post("/log_audit")
+# def log_augit(request):
+#     try:
+#         # Use the Django connection managed in your settings
+#         conn = connections["birai_db"]
+        
+#         with conn.cursor() as cursor:
+#             query = """
+#                 INSERT INTO audit_logs (timestamp, username, action, module, status)
+#                 VALUES (%s, %s, %s, %s, %s)
+#             """
+#             # Use %s placeholders to prevent SQL Injection
+#             cursor.execute(query, [
+#                 datetime.now(), 
+#                 username, 
+#                 action, 
+#                 module, 
+#                 status.lower()
+#             ])
+#             # Django's 'connections' usually auto-commits, but just in case:
+#             if not conn.get_autocommit():
+#                 conn.commit()
+                
+#     except Exception as e:
+#         # We don't want a logging error to crash the whole app
+#         print(f"FAILED TO WRITE TO AUDIT LOG: {e}")

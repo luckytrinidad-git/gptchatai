@@ -49,7 +49,7 @@ EXACT
 - The requested document was found.
 - Treat it as authoritative.
 
-SEMANTIC_HIGH
+SEMANTIC
 - The requested document was not found exactly.
 - Similarity >= 0.70.
 - These are highly related documents.
@@ -203,7 +203,7 @@ base the analysis only on the retrieved document.
 • Always cite the document title.
 """
 
-    elif match_type == "semantic_high":
+    elif match_type == "semantic":
 
         user_prompt = f"""
 USER QUESTION
@@ -214,7 +214,7 @@ USER QUESTION
 
 MATCH TYPE
 
-SEMANTIC_HIGH
+SEMANTIC
 
 Similarity Score
 

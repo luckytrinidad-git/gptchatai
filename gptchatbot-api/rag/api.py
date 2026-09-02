@@ -41,23 +41,65 @@ def search_bir_knowledge_base(
 
     1. If a document reference is detected:
        - Find matching topic_title first.
-       - Retrieve chunks belonging to that topic.
+       - Retrieve chunks belonging only to that topic.
        - Rank those chunks semantically.
+       - For comprehensive questions, retrieve more chunks.
 
-    2. If no exact/strong document match is found:
+    2. If no document reference is detected:
        - Perform semantic search across the selected agent.
 
-    3. Semantic fallback is marked separately so the LLM
-       knows that the retrieved document may not be the
-       document explicitly requested.
+    3. If an explicitly requested document exists but has no
+       embedded chunks, do NOT fall back to unrelated documents.
     """
 
     ###########################################################
     # CONFIGURATION
     ###########################################################
 
-    EXACT_TITLE_THRESHOLD = 0.90
-    SEMANTIC_THRESHOLD = 0.50
+    NORMAL_SEMANTIC_THRESHOLD = 0.50
+    COMPREHENSIVE_SEMANTIC_THRESHOLD = 0.40
+
+    ###########################################################
+    # 0. DETERMINE RETRIEVAL SIZE
+    ###########################################################
+
+    question = (user_question or "").strip().lower()
+
+    comprehensive_keywords = [
+        "list all",
+        "all provisions",
+        "all sections",
+        "everything about",
+        "enumerate",
+        "identify all",
+        "what are all",
+        "which provisions",
+        "which sections",
+        "all that",
+        "all rules",
+        "all requirements",
+        "all cases",
+        "all instances",
+    ]
+
+    is_comprehensive = any(
+        keyword in question
+        for keyword in comprehensive_keywords
+    )
+
+    if is_comprehensive:
+        retrieval_limit = max(limit, 40)
+        semantic_threshold = COMPREHENSIVE_SEMANTIC_THRESHOLD
+
+        print("=" * 70)
+        print("COMPREHENSIVE QUESTION DETECTED")
+        print(f"Retrieval Limit : {retrieval_limit}")
+        print(f"Similarity      : {semantic_threshold}")
+        print("=" * 70)
+
+    else:
+        retrieval_limit = limit
+        semantic_threshold = NORMAL_SEMANTIC_THRESHOLD
 
     ###########################################################
     # 1. GET AGENT ID
@@ -98,19 +140,13 @@ def search_bir_knowledge_base(
 
         print("=" * 70)
         print("DOCUMENT-AWARE SEARCH")
-        print(
-            f"Type   : {document['doc_type']}"
-        )
-        print(
-            f"Number : {document['doc_number']}"
-        )
-        print(
-            f"Variants: {document['variants']}"
-        )
+        print(f"Type    : {document['doc_type']}")
+        print(f"Number  : {document['doc_number']}")
+        print(f"Variants: {document['variants']}")
         print("=" * 70)
 
         #######################################################
-        # 2A. Find matching topic
+        # 2A. FIND MATCHING TOPIC
         #######################################################
 
         topic_id = None
@@ -126,7 +162,7 @@ def search_bir_knowledge_base(
                     topic_title
                 FROM kx_topics
                 WHERE agent_id = %s
-                AND (
+                  AND (
                     LOWER(
                         REGEXP_REPLACE(
                             topic_title,
@@ -144,7 +180,7 @@ def search_bir_knowledge_base(
                             'g'
                         )
                     )
-                )
+                  )
                 ORDER BY id DESC
                 LIMIT 1
                 """,
@@ -157,7 +193,7 @@ def search_bir_knowledge_base(
             row = cursor.fetchone()
 
         #######################################################
-        # 2B. Try all title variants
+        # 2B. TRY ALL TITLE VARIANTS
         #######################################################
 
         if row:
@@ -197,9 +233,9 @@ def search_bir_knowledge_base(
                             topic_title
                         FROM kx_topics
                         WHERE agent_id = %s
-                        AND (
+                          AND (
                             {" OR ".join(conditions)}
-                        )
+                          )
                         ORDER BY id DESC
                         LIMIT 1
                     """
@@ -217,23 +253,52 @@ def search_bir_knowledge_base(
                         topic_title = row[1]
 
         #######################################################
-        # 2C. Exact document found
+        # 2C. EXACT DOCUMENT FOUND
         #######################################################
 
         if topic_id:
 
             print("=" * 70)
             print("DOCUMENT MATCH FOUND")
-            print(
-                f"Topic ID    : {topic_id}"
-            )
-            print(
-                f"Topic Title : {topic_title}"
-            )
+            print(f"Topic ID    : {topic_id}")
+            print(f"Topic Title : {topic_title}")
             print("=" * 70)
 
             ###################################################
-            # Retrieve chunks belonging to this document
+            # Check whether this document actually has chunks
+            # with embeddings.
+            ###################################################
+
+            with connections["birai_db"].cursor() as cursor:
+
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM bir_document
+                    WHERE kx_topics_id = %s
+                      AND embedding IS NOT NULL
+                    """,
+                    (topic_id,),
+                )
+
+                embedded_chunk_count = cursor.fetchone()[0]
+
+            if embedded_chunk_count == 0:
+
+                print("=" * 70)
+                print("DOCUMENT FOUND BUT NO EMBEDDED CHUNKS")
+                print(f"Topic       : {topic_title}")
+                print("=" * 70)
+
+                # Do NOT search unrelated documents.
+                return {
+                    "contexts": [],
+                    "match_type": "document_empty",
+                    "best_score": 0,
+                }
+
+            ###################################################
+            # Rank chunks using pgvector
             ###################################################
 
             with connections["birai_db"].cursor() as cursor:
@@ -241,99 +306,48 @@ def search_bir_knowledge_base(
                 cursor.execute(
                     """
                     SELECT
-                        id,
-                        filename,
-                        content,
-                        chunk_index,
-                        embedding
-                    FROM bir_document
-                    WHERE kx_topics_id = %s
-                    """,
-                    (topic_id,),
-                )
-
-                rows = cursor.fetchall()
-
-            ###################################################
-            # Rank chunks using pgvector
-            ###################################################
-
-            ranked_chunks = []
-
-            for row in rows:
-
-                chunk_id = row[0]
-                filename = row[1]
-                content = row[2]
-                chunk_index = row[3]
-
-                # We cannot calculate pgvector similarity
-                # here using Python if the vector isn't loaded
-                # into a usable format, so use PostgreSQL
-                # directly below instead.
-                ranked_chunks.append(
-                    {
-                        "id": chunk_id,
-                        "filename": filename,
-                        "content": content,
-                        "chunk_index": chunk_index,
-                    }
-                )
-
-            ###################################################
-            # Use PostgreSQL pgvector to rank the chunks
-            ###################################################
-
-            if ranked_chunks:
-
-                with connections["birai_db"].cursor() as cursor:
-
-                    cursor.execute(
-                        """
-                        SELECT
-                            d.id,
-                            d.filename,
-                            d.content,
-                            d.chunk_index,
-                            1 - (
-                                d.embedding
-                                <=> %s::vector
-                            ) AS similarity
-                        FROM bir_document d
-                        WHERE d.kx_topics_id = %s
-                        AND d.embedding IS NOT NULL
-                        ORDER BY
+                        d.id,
+                        d.filename,
+                        d.content,
+                        d.chunk_index,
+                        1 - (
                             d.embedding
                             <=> %s::vector
-                        LIMIT %s
-                        """,
-                        [
-                            query_embedding,
-                            topic_id,
-                            query_embedding,
-                            limit,
-                        ],
-                    )
+                        ) AS similarity
+                    FROM bir_document d
+                    WHERE d.kx_topics_id = %s
+                      AND d.embedding IS NOT NULL
+                    ORDER BY
+                        d.embedding
+                        <=> %s::vector
+                    LIMIT %s
+                    """,
+                    [
+                        query_embedding,
+                        topic_id,
+                        query_embedding,
+                        retrieval_limit,
+                    ],
+                )
 
-                    ranked_rows = cursor.fetchall()
+                ranked_rows = cursor.fetchall()
 
-                ################################################
-                # Build context
-                ################################################
+            ###################################################
+            # Build context
+            ###################################################
+
+            if ranked_rows:
 
                 contexts = []
-
                 best_score = 0
 
                 for row in ranked_rows:
 
-                    similarity = float(
-                        row[4]
-                    )
+                    similarity = float(row[4])
 
                     best_score = max(
                         best_score,
-                        similarity
+                        similarity,
                     )
 
                     contexts.append(
@@ -345,6 +359,9 @@ Document Title:
 
 Filename:
 {row[1]}
+
+Chunk:
+{row[3]}
 
 Similarity Score:
 {similarity:.3f}
@@ -362,15 +379,10 @@ Content:
 
                 print("=" * 70)
                 print("EXACT DOCUMENT RETRIEVAL")
-                print(
-                    f"Topic       : {topic_title}"
-                )
-                print(
-                    f"Best Score  : {best_score:.3f}"
-                )
-                print(
-                    f"Chunks      : {len(contexts)}"
-                )
+                print(f"Topic       : {topic_title}")
+                print(f"Best Score  : {best_score:.3f}")
+                print(f"Chunks      : {len(contexts)}")
+                print(f"Comprehensive: {is_comprehensive}")
                 print("=" * 70)
 
                 return {
@@ -378,19 +390,42 @@ Content:
                     "match_type": "exact",
                     "best_score": round(
                         best_score,
-                        3
+                        3,
                     ),
                 }
 
+            # This should normally not happen because we already
+            # checked for embedded chunks, but keep it safe.
+            return {
+                "contexts": [],
+                "match_type": "document_empty",
+                "best_score": 0,
+            }
+
+        #######################################################
+        # 2D. EXPLICIT DOCUMENT NOT FOUND
+        #######################################################
+
+        print("=" * 70)
+        print("EXPLICIT DOCUMENT NOT FOUND")
+        print("Will NOT use unrelated semantic documents.")
+        print("=" * 70)
+
+        return {
+            "contexts": [],
+            "match_type": "document_not_found",
+            "best_score": 0,
+        }
+
     ###########################################################
-    # 3. SEMANTIC FALLBACK
+    # 3. SEMANTIC SEARCH
     ###########################################################
 
     print("=" * 70)
-    print("SEMANTIC FALLBACK")
-    print(
-        "No exact document match was found."
-    )
+    print("SEMANTIC SEARCH")
+    print("No document reference detected.")
+    print(f"Limit     : {retrieval_limit}")
+    print(f"Threshold : {semantic_threshold}")
     print("=" * 70)
 
     ###########################################################
@@ -412,33 +447,28 @@ Content:
                     <=> %s::vector
                 ) AS similarity
             FROM bir_document d
-
             INNER JOIN kx_topics t
                 ON d.kx_topics_id = t.id
-
             WHERE t.agent_id = %s
-            AND d.embedding IS NOT NULL
-
-            AND (
+              AND d.embedding IS NOT NULL
+              AND (
                 1 - (
                     d.embedding
                     <=> %s::vector
                 )
-            ) >= %s
-
+              ) >= %s
             ORDER BY
                 d.embedding
                 <=> %s::vector
-
             LIMIT %s
             """,
             [
                 query_embedding,
                 agent_id,
                 query_embedding,
-                SEMANTIC_THRESHOLD,
+                semantic_threshold,
                 query_embedding,
-                limit,
+                retrieval_limit,
             ],
         )
 
@@ -465,7 +495,6 @@ Content:
     ###########################################################
 
     contexts = []
-
     best_score = 0
 
     for row in rows:
@@ -476,7 +505,7 @@ Content:
 
         best_score = max(
             best_score,
-            similarity
+            similarity,
         )
 
         contexts.append(
@@ -489,11 +518,14 @@ Document Title:
 Filename:
 {row[1]}
 
+Chunk:
+{row[3]}
+
 Similarity Score:
 {similarity:.3f}
 
 Match Type:
-SEMANTIC FALLBACK
+SEMANTIC SEARCH
 
 Content:
 
@@ -509,12 +541,9 @@ Content:
 
     print("=" * 70)
     print("SEMANTIC RETRIEVAL RESULT")
-    print(
-        f"Best Score : {best_score:.3f}"
-    )
-    print(
-        f"Chunks     : {len(contexts)}"
-    )
+    print(f"Best Score    : {best_score:.3f}")
+    print(f"Chunks        : {len(contexts)}")
+    print(f"Comprehensive : {is_comprehensive}")
     print("=" * 70)
 
     return {
@@ -522,7 +551,7 @@ Content:
         "match_type": "semantic",
         "best_score": round(
             best_score,
-            3
+            3,
         ),
     }
 

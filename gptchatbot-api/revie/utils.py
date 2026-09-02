@@ -78,11 +78,11 @@ def search_revie_knowledge_base(
 
     elif best_score >= 0.55:
 
-        match_type = "semantic_high"
+        match_type = "semantic"
 
     else:
 
-        match_type = "semantic_high_low"
+        match_type = "semantic_low"
 
     ###########################################################
     # BUILD CONTEXT
