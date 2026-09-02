@@ -125,7 +125,7 @@ if prompt := st.chat_input("Ask about anything..."):
                     response = requests.post(endpoint, 
                     headers={
                         "X-API-Key": API_KEY
-                    },data=payload, timeout=180)
+                    },json=payload, timeout=180)
                     
                 # --- CASE 2: EXTERNAL SOURCE ---
                 elif model == "General":
