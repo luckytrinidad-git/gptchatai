@@ -158,3 +158,5 @@ CELERY_RESULT_BACKEND = os.getenv(
 )
 
 CELERY_TASK_TRACK_STARTED = True
+
+X_API_KEY = os.getenv("X_API_KEY")

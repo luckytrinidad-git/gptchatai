@@ -4,28 +4,10 @@ import os
 import sys
 import django
 from datetime import datetime
- 
-# ==========================================
-# 1. CROSS-PROJECT DJANGO SETUP
-# ==========================================
-# Path logic to find gptchatbot-api from gptchatbot-ui/pages/
-current_file_path = os.path.abspath(__file__)
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))
-api_path = os.path.join(project_root, "gptchatbot-api")
+import requests
+from app import API_URL, API_KEY
 
-if api_path not in sys.path:
-    sys.path.append(api_path)
-
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'gptchatbot.settings')
-
-try:
-    django.setup()
-except Exception as e:
-    st.error(f"Django Setup Error: {e}")
-    st.stop()
-
-from django.db import connections
-
+GENERAL_API_URL = f"{API_URL}/general"
 # Helper to hide the "Running..." man
 try:
     from ui_utils import hide_running_man
@@ -39,14 +21,6 @@ except ImportError:
 st.set_page_config(page_title="Audit Log - BIR AI System", layout="wide")
 hide_running_man()
 
-def get_db_connection():
-    """Uses the central Django connection instead of hardcoded credentials."""
-    try:
-        return connections["birai_db"]
-    except Exception as e:
-        st.error(f"Connection to Audit Database failed: {e}")
-        return None
-
 # =========================
 # 3. UI HEADER
 # =========================
@@ -56,84 +30,191 @@ st.markdown("Official chronological record of system activities and data modific
 # =========================
 # 4. DATA FETCHING & LOGIC
 # =========================
-conn = get_db_connection()
 
-if conn:
-    try:
-        # Fetch data
-        query = "SELECT timestamp, username, action, module, status FROM audit_logs ORDER BY timestamp DESC"
-        df_raw = pd.read_sql(query, conn)
-        
-        # Note: We don't manually close conn here because Django manages the lifecycle
+try:
+    response = requests.get(
+        f"{GENERAL_API_URL}/audit_log",
+        headers={
+            "X-API-Key": API_KEY
+        },
+        timeout=30
+    )
+    response.raise_for_status()
 
-        if not df_raw.empty:
-            # Force rename for UI consistency
-            df = df_raw.rename(columns={
-                'timestamp': 'Timestamp',
-                'username': 'User',
-                'action': 'Action',
-                'module': 'Module',
-                'status': 'Status'
-            })
+    data = response.json()
 
-            # --- KPI METRICS ---
-            total_logs = len(df)
-            success_count = len(df[df['Status'].str.lower() == 'success'])
-            fail_count = total_logs - success_count
-            
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Total Events", f"{total_logs:,}")
-            m2.metric("Success Rate", f"{(success_count/total_logs*100):.1f}%" if total_logs > 0 else "0%")
-            m3.metric("Failed Attempts", fail_count, delta_color="inverse")
+    if data:
+        df = pd.DataFrame(data)
 
-            st.divider()
-
-            # --- SIDEBAR FILTERS ---
-            with st.sidebar:
-                st.header("Filter Records")
-                
-                selected_user = st.multiselect("Filter by User", options=sorted(df['User'].unique().tolist()))
-                selected_status = st.multiselect("Filter by Status", options=sorted(df['Status'].unique().tolist()))
-                selected_module = st.multiselect("Filter by Module", options=sorted(df['Module'].unique().tolist()))
-
-                st.divider()
-                st.subheader("Data Export")
-                csv_data = df.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="Download Audit Report (CSV)",
-                    data=csv_data,
-                    file_name=f"BIR_Audit_Report_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-
-            # --- DATA FILTERING LOGIC ---
-            if selected_user:
-                df = df[df['User'].isin(selected_user)]
-            if selected_status:
-                df = df[df['Status'].isin(selected_status)]
-            if selected_module:
-                df = df[df['Module'].isin(selected_module)]
-
-            # --- DATA DISPLAY ---
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Timestamp": st.column_config.DatetimeColumn("Date & Time", format="D MMM YYYY, h:mm a"),
-                    "Status": st.column_config.TextColumn("Status"),
-                    "User": st.column_config.TextColumn("Actor"),
-                }
+        # Make sure Timestamp is treated as datetime
+        if "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(
+                df["timestamp"],
+                errors="coerce"
             )
 
-            if st.button("Refresh Logs"):
-                st.rerun()
+        # =========================
+        # SUMMARY
+        # =========================
+        total_logs = len(df)
 
-        else:
-            st.info("No audit logs recorded in the database yet.")
+        success_count = (
+            df["status"]
+            .astype(str)
+            .str.lower()
+            .eq("success")
+            .sum()
+        )
 
-    except Exception as e:
-        st.error(f"Error processing logs: {e}")
-else:
-    st.warning("Database configuration 'birai_db' not found in Django settings.")
+        fail_count = total_logs - success_count
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                "Total Logs",
+                total_logs
+            )
+
+        with col2:
+            st.metric(
+                "Successful",
+                success_count
+            )
+
+        with col3:
+            st.metric(
+                "Failed",
+                fail_count
+            )
+
+        st.divider()
+
+        # =========================
+        # FILTERS
+        # =========================
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            selected_user = st.multiselect(
+                "Filter by User",
+                options=sorted(
+                    df["username"]
+                    .dropna()
+                    .astype(str)
+                    .unique()
+                    .tolist()
+                )
+            )
+
+        with col2:
+            selected_status = st.multiselect(
+                "Filter by Status",
+                options=sorted(
+                    df["status"]
+                    .dropna()
+                    .astype(str)
+                    .unique()
+                    .tolist()
+                )
+            )
+
+        with col3:
+            selected_module = st.multiselect(
+                "Filter by Module",
+                options=sorted(
+                    df["module"]
+                    .dropna()
+                    .astype(str)
+                    .unique()
+                    .tolist()
+                )
+            )
+
+        # =========================
+        # APPLY FILTERS
+        # =========================
+        filtered_df = df.copy()
+
+        if selected_user:
+            filtered_df = filtered_df[
+                filtered_df["username"].isin(selected_user)
+            ]
+
+        if selected_status:
+            filtered_df = filtered_df[
+                filtered_df["status"].isin(selected_status)
+            ]
+
+        if selected_module:
+            filtered_df = filtered_df[
+                filtered_df["module"].isin(selected_module)
+            ]
+
+        # =========================
+        # DOWNLOAD CSV
+        # =========================
+        csv_data = filtered_df.to_csv(
+            index=False
+        ).encode("utf-8")
+
+        st.download_button(
+            label="Download CSV",
+            data=csv_data,
+            file_name="audit_logs.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+        st.divider()
+
+        # =========================
+        # AUDIT LOG TABLE
+        # =========================
+        st.dataframe(
+            filtered_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "timestamp": st.column_config.DatetimeColumn(
+                    "Date & Time",
+                    format="D MMM YYYY, h:mm a"
+                ),
+                "username": st.column_config.TextColumn(
+                    "Actor"
+                ),
+                "action": st.column_config.TextColumn(
+                    "Action"
+                ),
+                "module": st.column_config.TextColumn(
+                    "Module"
+                ),
+                "status": st.column_config.TextColumn(
+                    "Status"
+                ),
+            }
+        )
+
+        # =========================
+        # REFRESH
+        # =========================
+        if st.button(
+            "Refresh Logs",
+            use_container_width=True
+        ):
+            st.rerun()
+
+    else:
+        st.info(
+            "No audit logs recorded in the database yet."
+        )
+
+except requests.exceptions.RequestException as e:
+    st.error(
+        f"Unable to retrieve audit logs: {e}"
+    )
+
+except Exception as e:
+    st.error(
+        f"Error processing logs: {e}"
+    )

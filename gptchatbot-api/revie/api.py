@@ -378,7 +378,7 @@ def revie_intent_status(request):
     }
 
 @router.post("/ask-revie")
-def ask_revie(request, data: Form[PromptInput], file: UploadedFile = File(None)):
+def ask_revie(request, data: PromptInput):
     prompt = data.prompt
     
     ###########################################################

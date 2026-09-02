@@ -4,7 +4,7 @@ import time
 import json
 from ui_utils import hide_running_man
 from logger_utils import log_action
-from app import API_URL, REVIE_URL, REVIE_API_KEY
+from app import API_URL, API_KEY
 
 st.set_page_config(page_title="Chat Assistant", layout="wide")
 hide_running_man() 
@@ -36,7 +36,10 @@ st.title("Chat Assistant")
 with st.sidebar:
     with st.container():
         
-        response = requests.get(f"{GENERAL_API_URL}/agents")
+        response = requests.get(f"{GENERAL_API_URL}/agents",
+        headers={
+            "X-API-Key": API_KEY
+        })
         agents = response.json()
         agents = [
             {"id": -1, "agent": "General"},
@@ -117,9 +120,12 @@ if prompt := st.chat_input("Ask about anything..."):
                     payload = {
                         "prompt": prompt,
                         "agent": model,
-                        "history": json.dumps(st.session_state.messages[:-1])
+                        "history": json.dumps(st.session_state.messages[-10:])
                     }
-                    response = requests.post(endpoint, data=payload, timeout=180)
+                    response = requests.post(endpoint, 
+                    headers={
+                        "X-API-Key": API_KEY
+                    },data=payload, timeout=180)
                     
                 # --- CASE 2: EXTERNAL SOURCE ---
                 elif model == "General":
@@ -127,19 +133,28 @@ if prompt := st.chat_input("Ask about anything..."):
                     payload = {
                         "prompt": prompt, 
                         "agent": model, 
-                        "history": json.dumps(st.session_state.messages[:-1])
+                        "history": json.dumps(st.session_state.messages[-10:])
                     }
     
                     if uploaded_file:
                         # Standard file upload request
                         files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
-                        response = requests.post(endpoint, data=payload, files=files, timeout=180)
+                        response = requests.post(endpoint, 
+                        headers={
+                            "X-API-Key": API_KEY
+                        },data=payload, files=files, timeout=180)
                     else:
                         try:
-                            response = requests.post(endpoint, data=payload, timeout=180)
+                            response = requests.post(endpoint, 
+                        headers={
+                            "X-API-Key": API_KEY
+                        },data=payload, timeout=180)
                         except Exception:
                         # Fallback for strict backends:
-                            response = requests.post(endpoint, data=payload, files={'file': ('', b'')}, timeout=180)
+                            response = requests.post(endpoint, 
+                            headers={
+                                "X-API-Key": API_KEY
+                            },data=payload, files={'file': ('', b'')}, timeout=180)
 
                 # elif model == "BIR AI" and uploaded_file:
                 #     endpoint = ENDPOINTS["openai"]
@@ -165,9 +180,12 @@ if prompt := st.chat_input("Ask about anything..."):
                     payload = {
                         "prompt": prompt,
                         "agent": model_id,
-                        "history": json.dumps(st.session_state.messages[:-1])
+                        "history": json.dumps(st.session_state.messages[-10:])
                     }
-                    response = requests.post(endpoint, data=payload, timeout=180)
+                    response = requests.post(endpoint, 
+                        headers={
+                            "X-API-Key": API_KEY
+                        },data=payload, timeout=180)
                 
                 # 4. ROBUST RESPONSE PARSING
                 if response.status_code == 200:

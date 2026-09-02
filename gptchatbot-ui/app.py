@@ -12,6 +12,7 @@ hide_running_man()
 API_URL = os.getenv("API_URL")
 REVIE_URL = os.getenv("REVIE_URL")
 REVIE_API_KEY = os.getenv("REVIE_API_KEY")
+API_KEY = os.getenv("X_API_KEY")
 
 # =========================
 # DYNAMIC PATH RESOLUTION

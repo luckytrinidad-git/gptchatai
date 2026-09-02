@@ -53,3 +53,22 @@ def get_topics(request):
         dict(zip(columns, row))
         for row in rows
     ]
+    
+
+@router.get("/audit_log")
+def get_audit_log(request):
+    
+    with connections["birai_db"].cursor() as cursor:
+        cursor.execute("""
+            SELECT timestamp as Timestamp, username as Username, action as Action, module as Module, status as Status 
+            FROM audit_logs 
+            ORDER BY timestamp DESC
+        """)
+
+        columns = [col[0] for col in cursor.description]
+        rows = cursor.fetchall()
+
+    return [
+        dict(zip(columns, row))
+        for row in rows
+    ]

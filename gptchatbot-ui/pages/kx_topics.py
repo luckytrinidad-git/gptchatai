@@ -18,7 +18,7 @@ print(FILE_EXTENSIONS)
 # =========================
 # 2. CONFIG & ENDPOINTS
 # =========================
-from app import API_URL, REVIE_URL, REVIE_API_KEY
+from app import API_URL, API_KEY
 INGEST_API_URL = f"{API_URL}/rag/ingest-knowledge"
 REVIE_INGEST_URL = f"{API_URL}/revie/intents/import"
 GENERAL_API_URL = f"{API_URL}/general"
@@ -34,7 +34,10 @@ with st.expander("Ingest New Document", expanded=True):
         with col1:
             title = st.text_input("Topic Title")
         with col2:
-            response = requests.get(f"{GENERAL_API_URL}/agents")
+            response = requests.get(f"{GENERAL_API_URL}/agents",
+            headers={
+                "X-API-Key": API_KEY
+            })
             agents = response.json()
 
             with col2:
@@ -60,13 +63,19 @@ with st.expander("Ingest New Document", expanded=True):
                         payload = {
                             "title": title, "agent": agent_id, "uploaded_by": uploaded_by
                         }
-                        response = requests.post(REVIE_INGEST_URL, data=payload, files=files, timeout=300)
+                        response = requests.post(REVIE_INGEST_URL, 
+                            headers={
+                                "X-API-Key": API_KEY
+                            },data=payload, files=files, timeout=300)
                     else:
                         files = {"file": (up_file.name, up_file.getvalue(), up_file.type)}
                         payload = {
                             "title": title, "agent": agent_id, "uploaded_by": uploaded_by
                         }
-                        response = requests.post(INGEST_API_URL, data=payload, files=files, timeout=300)
+                        response = requests.post(INGEST_API_URL, 
+                            headers={
+                                "X-API-Key": API_KEY
+                            },data=payload, files=files, timeout=300)
 
                     if response.status_code == 200:
                         # LOG THE ACTION
@@ -99,7 +108,10 @@ with st.expander("Ingest New Document", expanded=True):
 # 4. VIEW REPOSITORY
 # =========================
 st.subheader("Unified Knowledge Repository")
-response = requests.get(f"{GENERAL_API_URL}/topics")
+response = requests.get(f"{GENERAL_API_URL}/topics",
+        headers={
+            "X-API-Key": API_KEY
+        })
 
 if response.status_code == 200:
     view_df = pd.DataFrame(response.json())
