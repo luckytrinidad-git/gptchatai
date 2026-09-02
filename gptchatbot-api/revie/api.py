@@ -450,6 +450,7 @@ def ask_revie(request, data: PromptInput):
 
         response = bir_openai_gpt45(
             prompt=prompt,
+            history=history,
             from_ask_bir=True,
         )
 

@@ -744,6 +744,7 @@ def ask_bir(
 
             response = bir_openai_gpt45(
                 prompt=prompt,
+                history=history,
                 from_ask_bir=True,
             )
 

@@ -1,5 +1,6 @@
 from openai import OpenAI
 from gptchatbot.settings import OPENAI_API_KEY
+import json
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -75,7 +76,7 @@ Always assume follow-up approval refers to the most recent assistant suggestion 
 Do not treat it as a new unrelated query.
 """
 
-def openai_gpt45(prompt, file_content=None, from_ask_bir = False):
+def openai_gpt45(prompt, file_content=None, from_ask_bir = False, history = None):
     system_prompt = INITIAL_PROMPT
     if not prompt:
         return 400, {'message': 'No prompt received.'}
@@ -93,33 +94,62 @@ Important:
 - Do not invent Revenue Regulations, Revenue Memorandum Circulars, Revenue Administrative Orders, or section numbers.
 - Cite references only if you are reasonably confident they are correct.
 """
+    messages = []
+
+    if history:
+        if isinstance(history, str):
+            try:
+                history = json.loads(history)
+            except (json.JSONDecodeError, TypeError):
+                history = []
+
+        if isinstance(history, list):
+            for message in history[-10:]:
+                if not isinstance(message, dict):
+                    continue
+
+                role = message.get("role")
+                content = message.get("content")
+
+                if role not in ("user", "assistant"):
+                    continue
+
+                if not content:
+                    continue
+
+                messages.append({
+                    "role": role,
+                    "content": content,
+                })
+                
+    messages.append({
+        "role": "user",
+        "content": prompt,
+    })
+    
     if file_content:
         uploaded_file = client.files.create(
             file=(file_content.name, file_content.file),
             purpose="user_data"
         )
 
-        response = client.responses.create(
-            model="gpt-5.6-luna",
-            instructions=system_prompt,
-            input=[
+        messages[-1] = {
+            "role": "user",
+            "content": [
                 {
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": prompt},
-                        {
-                            "type": "input_file",
-                            "file_id": uploaded_file.id
-                        }
-                    ]
+                    "type": "input_text",
+                    "text": prompt,
+                },
+                {
+                    "type": "input_file",
+                    "file_id": uploaded_file.id,
                 }
             ]
-        )
-        return response.output_text
-    else:
-        response = client.responses.create(
-            model="gpt-5.6-luna",
-            instructions=system_prompt,
-            input=prompt
-        )
-        return response.output_text
+        }
+        
+    response = client.responses.create(
+        model="gpt-5.6-luna",
+        instructions=system_prompt,
+        input=messages,
+    )
+    return response.output_text
