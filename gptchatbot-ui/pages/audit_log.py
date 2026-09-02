@@ -5,7 +5,10 @@ import sys
 import django
 from datetime import datetime
 import requests
-from app import API_URL, API_KEY
+from config import (
+    API_URL,
+    API_KEY
+)
 
 GENERAL_API_URL = f"{API_URL}/general"
 # Helper to hide the "Running..." man

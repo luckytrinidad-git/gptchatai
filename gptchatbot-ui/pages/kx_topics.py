@@ -13,12 +13,13 @@ FILE_EXTENSIONS = [
     if ext.strip()
 ]
 
-print(FILE_EXTENSIONS)
-
 # =========================
 # 2. CONFIG & ENDPOINTS
 # =========================
-from app import API_URL, API_KEY
+from config import (
+    API_URL,
+    API_KEY
+)
 INGEST_API_URL = f"{API_URL}/rag/ingest-knowledge"
 REVIE_INGEST_URL = f"{API_URL}/revie/intents/import"
 GENERAL_API_URL = f"{API_URL}/general"

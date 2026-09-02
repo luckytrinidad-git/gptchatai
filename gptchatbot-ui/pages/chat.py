@@ -4,7 +4,10 @@ import time
 import json
 from ui_utils import hide_running_man
 from logger_utils import log_action
-from app import API_URL, API_KEY
+from config import (
+    API_URL,
+    API_KEY
+)
 
 st.set_page_config(page_title="Chat Assistant", layout="wide")
 hide_running_man() 
@@ -12,7 +15,6 @@ hide_running_man()
 # =========================
 # CONFIG & ENDPOINTS
 # =========================
-from app import API_URL, REVIE_URL, REVIE_API_KEY
 INGEST_API_URL = f"{API_URL}/rag/ingest-knowledge"
 GENERAL_API_URL = f"{API_URL}/general"
 
@@ -53,25 +55,6 @@ with st.sidebar:
 
         model = selected_agent["agent"]
         model_id = selected_agent["id"]
-    # st.subheader("Document Upload")
-    # uploaded_file = st.file_uploader(
-    #     "Document Upload", 
-    #     type=["pdf", "csv", "txt", "xlsx", "docx"],
-    # )
-
-    # # Internal AI Knowledge Base Upload
-    # if model == "Internal AI" and uploaded_file:
-    #     if st.button("Upload to Knowledge Base", use_container_width=True):
-    #         with st.spinner("Indexing document..."):
-    #             files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
-    #             try:
-    #                 res = requests.post(ENDPOINTS["internal"], data={"prompt": "upload"}, files=files, timeout=180)
-    #                 if res.status_code == 200:
-    #                     st.success("Document Indexed")
-    #                 else:
-    #                     st.error("Upload failed")
-    #             except Exception as e:
-    #                 st.error(f"Error: {e}")
 
     # UPLOAD VISIBLE ONLY FOR EXTERNAL SOURCE
 
@@ -155,22 +138,6 @@ if prompt := st.chat_input("Ask about anything..."):
                             headers={
                                 "X-API-Key": API_KEY
                             },data=payload, files={'file': ('', b'')}, timeout=180)
-
-                # elif model == "BIR AI" and uploaded_file:
-                #     endpoint = ENDPOINTS["openai"]
-                    
-                #     print(f"\n[DEBUG] Model Selected: {model}")
-                #     print(f"[DEBUG] Calling Endpoint: {endpoint}")
-
-                #     payload = {
-                #         "prompt": prompt,
-                #         "agent": model,
-                #         "history": json.dumps(st.session_state.messages[:-1])
-                #     }
-
-                #     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
-
-                #     response = requests.post(endpoint, data=payload, files=files, timeout=45)
 
                 else:
                     endpoint = ENDPOINTS["internal"]
