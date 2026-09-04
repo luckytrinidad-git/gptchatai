@@ -207,50 +207,31 @@ def search_bir_knowledge_base(
                 "No normalized exact title match."
             )
 
+            doc_type = document["doc_type"]
+            doc_number = document["doc_number"]
+
             with connections["birai_db"].cursor() as cursor:
-
-                conditions = []
-                params = []
-
-                for variant in document["variants"]:
-
-                    conditions.append(
-                        """
-                        LOWER(topic_title)
-                        LIKE LOWER(%s)
-                        """
-                    )
-
-                    params.append(
-                        f"%{variant}%"
-                    )
-
-                if conditions:
-
-                    sql = f"""
-                        SELECT
-                            id,
-                            topic_title
-                        FROM kx_topics
-                        WHERE agent_id = %s
-                          AND (
-                            {" OR ".join(conditions)}
-                          )
-                        ORDER BY id DESC
-                        LIMIT 1
+                cursor.execute(
                     """
+                    SELECT id, topic_title
+                    FROM kx_topics
+                    WHERE agent_id = %s
+                    AND LOWER(topic_title) LIKE LOWER(%s)
+                    AND LOWER(topic_title) LIKE LOWER(%s)
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    [
+                        agent_id,
+                        f"%{doc_type}%",
+                        f"%{doc_number}%",
+                    ],
+                )
+                row = cursor.fetchone()
 
-                    cursor.execute(
-                        sql,
-                        [agent_id] + params,
-                    )
-
-                    row = cursor.fetchone()
-
-                    if row:
-
-                        topic_id = row[0]
-                        topic_title = row[1]
+            if row:
+                topic_id = row[0]
+                topic_title = row[1]
 
         #######################################################
         # 2C. EXACT DOCUMENT FOUND
